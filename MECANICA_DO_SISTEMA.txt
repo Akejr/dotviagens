@@ -1,0 +1,197 @@
+DOT VIAGENS — DOCUMENTAÇÃO DO SISTEMA
+Revisão: 6 de Novembro de 2026 — datas automáticas, regresso e identidade visual
+
+1. PRODUTO E LIMITES
+Pesquisa real via SerpApi Google Flights, preços em BRL. O cliente escolhe
+ida, depois volta compatível, e vê um resumo com o total do itinerário.
+Só ida salta directamente para o resumo. Esta aplicação pesquisa e compara;
+não cobra, não reserva, não emite bilhetes e não garante disponibilidade.
+Suporta 1–4 adultos em económica. Crianças, outras classes, múltiplas cidades,
+pagamentos, autenticação de clientes, reservas e emissão continuam por integrar.
+O acesso ao site publicado mantém a configuração privada do proprietário.
+
+2. ARQUITECTURA
+Frontend HTML/CSS/JS em public/. Vinext com Worker Cloudflare.
+app/page.tsx redirecciona para /home.html. worker/index.ts intercepta
+POST /api/flights/search e chama server/flights.mjs, preservando o restante
+runtime Sites. A chave SERPAPI_KEY existe apenas no ambiente do servidor.
+Nunca colocar a chave no JS público, ficheiro versionado ou ZIP.
+.openai/hosting.json mantém identidade/configuração da publicação.
+
+3. AEROPORTOS E PAÍSES
+public/airports.json: snapshot OurAirports, domínio público, descarregado em
+6/11/2026, 9.053 códigos IATA activos em 239 países/territórios. Exclui entradas
+marcadas closed e entradas sem código IATA de três letras. Não significa que
+todos tenham voos comerciais ou cobertura Google Flights. A disponibilidade
+é sempre determinada pelo fornecedor para a rota e data seleccionadas.
+Países traduzidos em runtime por Intl.DisplayNames; a pesquisa aceita nome do
+país, cidade, aeroporto e código. Resultados locais limitados a 40 sugestões,
+com aeroportos de serviço regular prioritários e correspondência IATA exacta
+primeiro. Pesquisa insensível a acentos. Sem chamadas pagas para autocomplete.
+NBJ e nomes lusófonos prioritários receberam correcções de apresentação.
+server/airport-codes.mjs é o índice de validação correspondente ao snapshot.
+Actualizar AMBOS os ficheiros ao actualizar a base. Fonte e termos:
+https://ourairports.com/data/
+https://davidmegginson.github.io/ourairports-data/airports.csv
+https://davidmegginson.github.io/ourairports-data/countries.csv
+A base não promete todos os aeroportos existentes ou todos os destinos vendidos.
+
+4. PESQUISA E ESTADO
+home.html contém formulário e branding, app.js valida e navega para
+/resultados.html?origin=NBJ&destination=LIS&departureDate=YYYY-MM-DD
+&returnDate=YYYY-MM-DD&passengers=1&cabin=economy
+Omitir returnDate para só ida. interactions.js contém dropdown pesquisável,
+calendários e selecção de adultos; carousel.js gere o slideshow.
+results.js gere estados outbound, return e summary, datas, filtros e paginação.
+O cabeçalho persistente inclui navegação para voos, destinos e funcionamento.
+
+5. IDA E VOLTA — PONTO CRÍTICO
+A pesquisa inicial envia type=1, departure_id, arrival_id, outbound_date,
+return_date e adults ao Google Flights via SerpApi. Os resultados iniciais
+mostram os percursos de ida com preços de referência para IDA E VOLTA.
+Ao seleccionar uma ida, enviar o seu departure_token num NOVO pedido com
+os MESMOS aeroportos/datas/adultos. Não inverter origem e destino: o token
+identifica a ida e a SerpApi devolve as voltas compatíveis.
+O normalizador preserva departureToken e bookingToken.
+Uma ida sem departureToken não permite continuar na pesquisa ida/volta.
+Depois de escolher a volta, o seu amount é o TOTAL do itinerário seleccionado.
+NÃO somar preço de ida + preço de volta: ambos podem ser totais ida/volta.
+NÃO multiplicar pelo número de adultos: adults já foi enviado ao fornecedor.
+O resumo mostra ambos os percursos e permite alterar qualquer selecção.
+Alterar a ida invalida a volta e consulta novamente através do novo token.
+Alterar data de ida limpa ambas as selecções; o regresso permanece na data
+original. A etapa de volta tem cartões de datas e calendário próprios.
+Alterar a data de volta mantém a ida seleccionada e invalida a volta anterior.
+resolveReturns consulta as idas para a nova combinação de datas, encontra os
+mesmos segmentos (número de voo, origem, destino e partida), obtém um token
+actualizado e consulta os regressos. Se a ida exacta não está disponível,
+mostra ausência de opções; nunca troca silenciosamente o voo de ida.
+A data mínima de volta é o dia de chegada do último segmento da ida.
+Guardar itinerário descarrega TXT local; não cria reserva nem bilhete.
+Refresh reinicia a etapa de ida, reaproveitando cache válida; não persiste
+uma reserva ou promete continuidade de tokens expirados.
+bookingToken é preservado para futura consulta de opções de reserva; a
+integração actual NÃO chama booking_options nem conduz ao checkout.
+Documentação: https://serpapi.com/google-flights-api
+
+6. ECONOMIA DE REQUISIÇÕES
+- Autocomplete usa ficheiro estático local. Nenhuma consulta SerpApi ao digitar.
+- Consulta a data seleccionada primeiro, seguida das restantes datas visíveis
+  automaticamente, com dois trabalhadores em paralelo por janela.
+- Os cinco cartões mostram A consultar durante o carregamento e depois o menor
+  preço encontrado. Não é necessário clicar para ver preços de outros dias.
+- O calendário permite saltar para outra data, tanto na ida como na volta.
+- Na volta, cada nova data pode exigir duas chamadas sem cache: obter um token
+  actualizado da mesma ida e consultar os regressos compatíveis. O resultado
+  fica em cache também pela identidade dos segmentos da ida seleccionada.
+- A navegação interrompe a fila antiga; pedidos já iniciados podem terminar.
+  Não há quota global persistente nem cancelamento de pedidos já enviados.
+- Não inventa tarifas para datas por consultar, erros ou ausência de voos.
+- Cartões consultados mostram mínimo de TODAS as opções recebidas após filtros,
+  não apenas as oito opções visíveis. Não é garantia de mínimo global do mercado.
+- Mais baratos, mais rápidos, filtros e Ver mais são operações locais.
+- Ver mais revela oito opções por vez, só aparece havendo opções restantes.
+  A API não fornece paginação para além de best_flights/other_flights; não se
+  inventam páginas remotas. Reordenar/filtrar actua sobre todo o conjunto.
+- Browser: cache por consulta canónica, TTL 10 minutos, sessionStorage e memória,
+  máximo 35 entradas; pedidos idênticos em curso partilham a mesma Promise.
+- Servidor: cache em memória por consulta canónica, TTL 10 minutos, máximo 100
+  entradas, deduplicação de consultas concorrentes no MESMO isolate.
+- Cache não é partilhado entre regiões/isolate e perde-se em deploy/reinício.
+  Para escala pública, adicionar cache distribuído e quotas por utilizador.
+- Não enviamos no_cache=true; mantemos o cache do próprio fornecedor activo.
+- Escolher ida consulta apenas as voltas compatíveis. Voltar à mesma escolha
+  dentro do TTL usa cache. Sem chamadas de booking_options automáticas.
+- Cache inclui rota, datas, adultos, classe, filtro backend e departureToken.
+- Protecção de geração impede respostas antigas de substituir uma nova etapa.
+
+7. FILTROS
+Companhias derivadas EXCLUSIVAMENTE dos voos da data e etapa actual.
+Cada companhia operadora nos segmentos aparece uma vez, com contagem de
+itinerários. Combinação entre companhias seleccionadas é OR (qualquer uma).
+Directos restringe a stops=0 localmente; não gasta requisição. Uma oferta com
+várias companhias é incluída se alguma operadora corresponde ao filtro.
+Mudar data/etapa limpa selecção de companhias. Activar directos recalcula a
+lista de companhias e limpa selecções. Não aparecem companhias de outras datas.
+O filtro aplica-se à etapa actual. Ao escolher a volta, a ida já seleccionada
+permanece fixa; o resumo apresenta todos os segmentos de ambos os percursos.
+
+8. CONTRATO HTTP E ERROS
+POST /api/flights/search, Content-Type application/json:
+{origin, destination, departureDate, returnDate|null, passengers, cabin:'economy',
+ stops:0|1, departureToken?:string}
+Datas ISO reais, entre hoje e 330 dias, volta >= ida, origem != destino,
+códigos IATA existentes na base. Tokens validados, limite 12.000 caracteres.
+Corpo máximo 16.000 caracteres. Só POST; valida Origin quando presente.
+Resposta: {offers,currency:'BRL',passengers,roundTrip,searchedAt,cached,demo:false}.
+Oferta: id, airline, logo, amount, currency, duration, stops, cabin,
+departureToken, bookingToken, segments[], layovers[].
+Segmentos: airline, logo, number, from, to, departure, arrival, duration.
+Horários são locais dos aeroportos, não converter cegamente para o fuso do browser.
+Deduplicação por segmentos + valor, juntando best_flights e other_flights.
+Timeout servidor 45s; browser 55s. Falhas exibem mensagens portuguesas seguras
+com botão de nova tentativa. Resultados vazios não são erros simulados.
+Não logar URL SerpApi, pois contém api_key. Não devolver resposta crua com segredo.
+Logótipos limitados a HTTPS www.gstatic.com/flights/airline_logos/ e fallback.
+Textos externos são escapados antes de inserir no HTML.
+O snapshot e códigos são dados locais públicos, não credenciais.
+
+9. MAPA DE FICHEIROS
+public/home.html, styles.css: apresentação e formulário.
+public/app.js, interactions.js, carousel.js: lógica da home.
+public/airports.json, airports.js: catálogo e carregamento único.
+public/resultados.html, results.css, results.js: fluxo de selecção de voos.
+public/flight-model.js: filtros/companhias/ordenação/total testáveis e reutilizáveis.
+public/services.js: transporte para endpoint interno.
+server/flights.mjs, airport-codes.mjs: validação, cache e adaptador SerpApi.
+worker/index.ts: integração do endpoint no Worker.
+tests/*.test.mjs: contratos, tokens, preços, cache, validação e filtros.
+public/assets/: logo, paisagens e arte de bilhete; não é preciso regenerar.
+
+10. EXECUÇÃO / ENTREGA
+Node >=22.13; pnpm conforme packageManager em package.json.
+pnpm install
+pnpm dev
+node --test tests/*.test.mjs
+pnpm build
+pnpm start
+O projecto preserva o runtime Vinext/Sites. Para deploy fora desse ambiente,
+adaptar bindings/imports de runtime conforme o provedor escolhido.
+SERPAPI_KEY deve ser injectada no ambiente Worker. Nunca colocar em public/.
+Para desenvolvimento, configurar segredo local no mecanismo de ambiente do
+Worker e garantir que .dev.vars/.env permanecem fora do Git.
+ZIP contém fontes, assets, lockfile e documentação. Exclui node_modules,
+.git, builds, cache de consultas e credenciais.
+
+11. PRÓXIMAS INTEGRAÇÕES
+Antes de vender: booking_options/revalidação da tarifa, regras de bagagem,
+identificação de passageiros, consentimento, Supabase com RLS, reserva de
+inventário quando suportada, pagamento confirmado por webhook idempotente,
+conciliação financeira, emissão real, notificações e cancelamentos.
+A SerpApi é pesquisa; não é um sistema de emissão ou garantia tarifária.
+Para uso público, adicionar autenticação de cliente, quotas persistentes,
+limites globais, telemetria sem segredos e controlo de custo por conta.
+Conversão BRL→AOA não está implementada; interface e preços de pesquisa em BRL.
+TXT contém mecânica actual e limites; não confundir resumo com compra concluída.
+
+12. IDENTIDADE VISUAL E CONEXÕES
+O logo fornecido pelo utilizador, sem a palavra Viagens, está em
+public/assets/logo-dot.png e é usado na home, resultados, rodapé e cartão.
+O banner usa a arte assets/banner-passaporte-dot.png: mão com passaporte
+angolano e bilhete DOT. É uma ilustração publicitária, não um bilhete real.
+No desktop a arte inteira é um link para a pesquisa. No mobile, a copy
+aparece em HTML e a imagem é enquadrada à direita para destacar os documentos.
+As conexões mostram a duração por extenso e a cidade em laranja/negrito,
+com o aeroporto numa linha secundária. Ex.: Conexão de 2 horas em Lisboa
+(Humberto Delgado). Nomes vêm do catálogo; CMN é apresentado como Casablanca.
+Hero: Serra da Leba, Marginal de Luanda, Ilha de Luanda e Quedas de Kalandula.
+A legenda acompanha cada slide, sem cartão, borda, blur ou ícone. Um gradiente
+escuro radial suave atrás do texto escurece localmente a fotografia, com
+limites esbatidos. Mantém a leitura em fotografias claras e escuras.
+
+13. MANUTENÇÃO DESTA DOCUMENTAÇÃO
+Este ficheiro descreve a versão entregue e deve acompanhar cada actualização
+de código, com revisão das secções afectadas. Não se actualiza sozinho por
+software. Incluí-lo sempre no ZIP e entregar uma cópia TXT separada.
+Testes actuais: 14 testes automáticos, incluindo mudança de data de volta,
+resolução do token actualizado e prevenção da substituição indevida da ida.
