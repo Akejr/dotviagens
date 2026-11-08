@@ -470,6 +470,11 @@ Os ícones dos benefícios (por baixo da pesquisa) e dos passos da viagem não
 têm efeito de hover: são informativos, não botões.
 O banner usa a arte assets/banner-passaporte-dot.jpg: mão com passaporte
 angolano e bilhete DOT. É uma ilustração publicitária, não um bilhete real.
+A frase da arte (que dizia "Estamos a preparar…") passou a ser a mesma do
+texto do banner no telemóvel: "Compra voos em kwanzas, com Multicaixa Express
+ou por referência. Simples, do início ao embarque." (DM Sans 30 px, #3b3b3b,
+no PNG de 2022 px). Para mudar o texto da arte, editar o PNG e gerar de novo
+os dois JPG (1600 px e 960 px).
 As conexões mostram a duração por extenso e a cidade em laranja/negrito,
 com o aeroporto numa linha secundária. Ex.: Conexão de 2 horas em Lisboa
 (Humberto Delgado). Nomes vêm do catálogo; CMN é apresentado como Casablanca.
