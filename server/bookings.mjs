@@ -114,6 +114,7 @@ export function publicBooking(row, env) {
     passengersCount: row.passengers_count,
     amountAoa: Number(row.amount_aoa),
     contact: { name: row.contact_name, phone: row.contact_phone, email: row.contact_email },
+    paymentMethod: row.payment_method === 'manual' ? 'manual' : 'wiza',
     itinerary: { outbound: publicLeg(itinerary.outbound), inbound: publicLeg(itinerary.inbound) },
     passengers: (row.booking_passengers || [])
       .sort((a, b) => a.position - b.position)
@@ -177,6 +178,8 @@ async function startPayment(request, env, store, booking, deps) {
   }, deps.fetcher);
   const [updated] = await store.update('bookings', { id: `eq.${booking.id}`, status: `in.(${OPEN.join(',')})` }, {
     status: 'pending_payment',
+    // A manual (WhatsApp) booking that later pays on the Wiza page becomes a Wiza payment.
+    payment_method: 'wiza',
     payment_attempts: attempt,
     wiza_reference_id: referenceId,
     // Earlier charges stay linked: their callbacks must still find this booking.
@@ -210,7 +213,10 @@ export async function createBooking(request, env, ctx, deps) {
   if (quoted.h !== await itineraryKey(body.itinerary) || quoted.priceBrl !== verified.priceBrl) {
     throw new HttpError(400, 'A cotação não corresponde à viagem seleccionada.', 'QUOTE_MISMATCH');
   }
-  if (!hasWiza(env)) throw new HttpError(503, 'Os pagamentos ainda não estão configurados.', 'PAYMENTS_NOT_CONFIGURED');
+  // 'wiza': Multicaixa Express or reference on the Wiza page. 'manual': agreed with the DOT team on
+  // WhatsApp; the booking is saved the same way and the admin confirms the payment by hand.
+  const paymentMethod = body.paymentMethod === 'manual' ? 'manual' : 'wiza';
+  if (paymentMethod === 'wiza' && !hasWiza(env)) throw new HttpError(503, 'Os pagamentos ainda não estão configurados.', 'PAYMENTS_NOT_CONFIGURED');
 
   const contactName = cleanText(body.contact?.name, 80);
   const contactEmail = cleanEmail(body.contact?.email);
@@ -222,7 +228,7 @@ export async function createBooking(request, env, ctx, deps) {
   if (body.accept !== true) throw new HttpError(400, 'Confirma que os dados dos passageiros estão correctos.', 'NOT_ACCEPTED');
 
   const store = db(env, deps.fetcher);
-  // Each booking opens a Wiza charge: limit how many one account can create per hour.
+  // Each booking may open a Wiza charge or a WhatsApp conversation: limit how many one account creates per hour.
   const { total: lastHour } = await store.selectCount('bookings', {
     select: 'id',
     customer_id: `eq.${session.customer.id}`,
@@ -259,6 +265,7 @@ export async function createBooking(request, env, ctx, deps) {
     amount_aoa: quoted.amountAoa,
     invoice_nif: invoice?.nif ?? null,
     invoice_name: invoice?.name ?? null,
+    payment_method: paymentMethod,
   });
   await store.insert('booking_passengers', passengers.map((p, index) => ({
     booking_id: booking.id,
@@ -280,8 +287,14 @@ export async function createBooking(request, env, ctx, deps) {
     }).catch(() => {});
   }
   await logEvent(store, booking.id, 'create', 'booking_created', {
-    amountAoa: quoted.amountAoa, baseAoa: quoted.baseAoa, feeAoa: quoted.feeAoa, markupBp: quoted.markupBp, rate: quoted.rate, priceBrl: verified.priceBrl,
+    amountAoa: quoted.amountAoa, baseAoa: quoted.baseAoa, feeAoa: quoted.feeAoa, markupBp: quoted.markupBp, rate: quoted.rate, priceBrl: verified.priceBrl, paymentMethod,
   });
+
+  if (paymentMethod === 'manual') {
+    // No gateway call: the customer continues on WhatsApp with the booking reference.
+    await logEvent(store, booking.id, 'create', 'manual_requested', null);
+    return json({ reference: booking.reference, amountAoa: Number(booking.amount_aoa), paymentMethod, hostedUrl: null }, 201);
+  }
 
   try {
     const started = await startPayment(request, env, store, booking, deps);

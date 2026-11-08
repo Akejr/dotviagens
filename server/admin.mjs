@@ -129,7 +129,7 @@ export async function listBookings(request, env, ctx, deps) {
   const status = url.searchParams.get('status');
   const term = searchTerm(url.searchParams.get('q'));
   const params = {
-    select: 'id,reference,status,needs_review,created_at,paid_at,contact_name,contact_phone,contact_email,trip_type,origin,destination,departure_date,return_date,passengers_count,amount_aoa,base_aoa,fee_aoa,markup_bp,price_brl,exchange_rate,wiza_status,wiza_service,wiza_status_code,vero_invoice_number,vero_agt_status,vero_error,ticket_pnr',
+    select: 'id,reference,status,needs_review,created_at,paid_at,contact_name,contact_phone,contact_email,trip_type,origin,destination,departure_date,return_date,passengers_count,amount_aoa,base_aoa,fee_aoa,markup_bp,price_brl,exchange_rate,payment_method,wiza_status,wiza_service,wiza_status_code,vero_invoice_number,vero_agt_status,vero_error,ticket_pnr',
     order: 'created_at.desc',
     ...pageParams(url),
   };

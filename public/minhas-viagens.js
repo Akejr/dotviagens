@@ -3,6 +3,7 @@ import { icon } from './icons.js';
 import { mountOtp } from './otp-widget.js';
 import { countryName } from './countries.js';
 import { loadAirports } from './airports.js';
+import { bookingLink } from './whatsapp.js';
 
 const $ = selector => document.querySelector(selector);
 const root = $('#trips');
@@ -56,6 +57,9 @@ function legBlock(leg, label, date) {
 
 function paymentBlock(booking) {
   const payment = booking.payment || {};
+  if (booking.status === 'pending_payment' && booking.paymentMethod === 'manual') {
+    return `<div class="notice">${icon('message', 18)}<div><b>Pagamento manual pelo WhatsApp.</b> Combina o pagamento de ${formatKz(booking.amountAoa)} com a equipa DOT. A reserva espera pelo pagamento até 72 horas. <a class="link-btn" href="${esc(bookingLink(booking, city))}" target="_blank" rel="noopener">Abrir o WhatsApp ↗</a></div></div>`;
+  }
   if (booking.status === 'pending_payment') {
     return `<div class="notice">${icon('clock', 18)}<div><b>À espera do pagamento.</b> ${payment.atmReference ? `Paga com entidade <b>${esc(payment.atmEntity || '—')}</b> e referência <b>${esc(payment.atmReference)}</b>, no valor de ${formatKz(booking.amountAoa)}.` : 'Se já pagaste, a confirmação pode demorar alguns minutos.'}</div></div>`;
   }
@@ -95,6 +99,9 @@ function stubCode(booking) {
 function stubAction(booking) {
   const payment = booking.payment || {};
   const href = `/compra.html?ref=${encodeURIComponent(booking.reference)}`;
+  if (booking.status === 'pending_payment' && booking.paymentMethod === 'manual') {
+    return `<a class="primary pass-pay whatsapp-btn" href="${esc(bookingLink(booking, city))}" target="_blank" rel="noopener"><img class="wa-glyph" src="/assets/payments/whatsapp.svg" width="18" height="18" alt=""> Pagar pelo WhatsApp</a>`;
+  }
   if (booking.status === 'pending_payment') return `<a class="primary pass-pay" href="${href}">${icon('wallet', 15)} ${payment.hostedUrl || payment.canRetry ? 'Concluir pagamento' : 'Ver pagamento'}</a>`;
   if (booking.status === 'payment_failed' && payment.canRetry) return `<a class="primary pass-pay" href="${href}">${icon('refresh', 15)} Tentar novamente</a>`;
   return '';

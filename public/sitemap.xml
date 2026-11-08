@@ -2,16 +2,58 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
   <url>
     <loc>https://dotviagens.vercel.app/</loc>
-    <lastmod>2026-11-07</lastmod>
+    <lastmod>2026-11-08</lastmod>
     <changefreq>daily</changefreq>
     <priority>1.0</priority>
     <image:image><image:loc>https://dotviagens.vercel.app/assets/og-dot-viagens.jpg</image:loc></image:image>
     <image:image><image:loc>https://dotviagens.vercel.app/assets/hero/angola-mountains.jpg</image:loc></image:image>
   </url>
   <url>
-    <loc>https://dotviagens.vercel.app/pagar-passagens-em-kwanzas</loc>
-    <lastmod>2026-11-07</lastmod>
-    <changefreq>monthly</changefreq>
+    <loc>https://dotviagens.vercel.app/blog</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>weekly</changefreq>
     <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://dotviagens.vercel.app/blog/passagens-aereas-baratas-em-angola</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+    <image:image><image:loc>https://dotviagens.vercel.app/assets/hero/angola-mountains.jpg</image:loc></image:image>
+  </url>
+  <url>
+    <loc>https://dotviagens.vercel.app/blog/como-pagar-passagens-aereas-em-kwanzas</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+    <image:image><image:loc>https://dotviagens.vercel.app/assets/og-dot-viagens.jpg</image:loc></image:image>
+  </url>
+  <url>
+    <loc>https://dotviagens.vercel.app/blog/bilhetes-de-aviao-baratos</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+    <image:image><image:loc>https://dotviagens.vercel.app/assets/dubai.jpg</image:loc></image:image>
+  </url>
+  <url>
+    <loc>https://dotviagens.vercel.app/blog/multicaixa-express-ou-referencia</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+    <image:image><image:loc>https://dotviagens.vercel.app/assets/hero/angola-city.jpg</image:loc></image:image>
+  </url>
+  <url>
+    <loc>https://dotviagens.vercel.app/blog/passagens-luanda-lisboa</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+    <image:image><image:loc>https://dotviagens.vercel.app/assets/lisboa.jpg</image:loc></image:image>
+  </url>
+  <url>
+    <loc>https://dotviagens.vercel.app/blog/passagens-luanda-sao-paulo</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+    <image:image><image:loc>https://dotviagens.vercel.app/assets/saopaulo.jpg</image:loc></image:image>
   </url>
 </urlset>

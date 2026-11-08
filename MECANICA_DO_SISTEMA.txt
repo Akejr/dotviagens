@@ -1,7 +1,10 @@
 DOT VIAGENS — DOCUMENTAÇÃO DO SISTEMA
-Revisão: 7 de Novembro de 2026 (3.ª) — SEO (sitemap, robots, dados
-estruturados, guia "Pagar passagens em kwanzas"), favicon, publicação na
-Vercel, calendário mais rápido (cache partilhado), novo visual da compra,
+Revisão: 8 de Novembro de 2026 (4.ª) — pagamento em três opções (manual pelo
+WhatsApp, Wiza, cartões indisponíveis), blog com 6 artigos (substitui a
+secção de SEO da home e o guia), hero original de volta, ícones da home sem
+fundo, revisão da compra mais limpa.
+3.ª revisão: SEO (sitemap, robots, dados estruturados), favicon, publicação
+na Vercel, calendário mais rápido (cache partilhado), novo visual da compra,
 logótipos de duas companhias, rodapé em todas as páginas, botão de voltar,
 fim dos textos de pré-lançamento.
 2.ª revisão: taxa DOT de 11%, calendário com preços, painel em tempo real.
@@ -29,8 +32,9 @@ O acesso ao site publicado mantém a configuração privada do proprietário.
 Frontend HTML/CSS/JS em public/ (sem bundler). Duas formas de correr a mesma
 API (server/router.mjs), sem alterar o código das rotas:
 - Desenvolvimento local: Vinext com Worker Cloudflare. app/page.tsx
-  redirecciona para /home.html; app/admin, app/minhas-viagens e
-  app/pagar-passagens-em-kwanzas redireccionam para os .html respectivos.
+  redirecciona para /home.html; app/admin e app/minhas-viagens para os .html
+  respectivos; app/blog e app/blog/[slug] para public/blog/*.html;
+  app/pagar-passagens-em-kwanzas para o artigo do blog que o substituiu.
   worker/index.ts envia TODOS os pedidos /api/* para server/router.mjs e
   preserva o restante runtime Sites. O handler scheduled() executa a
   verificação de pagamentos quando existe um Cron Trigger (secção 10).
@@ -68,9 +72,9 @@ home.html contém formulário e branding, app.js valida e navega para
 &returnDate=YYYY-MM-DD&passengers=1&cabin=economy
 Omitir returnDate para só ida. interactions.js contém dropdown pesquisável,
 calendários (price-calendar.js, ver secção 8A) e selecção de adultos;
-carousel.js gere o slideshow. /?destino=LIS (ou /home.html?destino=LIS)
-preenche o destino; os botões de rota da secção "Passagens aéreas baratas"
-(data-route) fazem o mesmo e levam ao formulário. Na ida e volta, escolher a ida mantém a duração
+carousel.js gere o slideshow. /?destino=LIS#pesquisa (ou /home.html?destino=LIS)
+preenche o destino e já prepara os preços do calendário; os artigos do blog
+usam estes endereços nos botões "Pesquisar voos para…". Na ida e volta, escolher a ida mantém a duração
 da viagem (a volta acompanha) e abre logo o calendário da volta.
 results.js gere estados outbound, return e summary, datas, filtros e paginação.
 Ao abrir, results.js lê GET /api/rate {rate, markupBp}: com câmbio mostra o
@@ -219,8 +223,40 @@ que obriguem a UCS-2) para caber num SMS. Rede Movicel (91x, 99x): remetente
 numérico 46554; o formulário avisa o cliente. Cada SMS fica em sms_messages
 (sem o texto das OTP); o estado consulta-se no painel.
 
-10. COMPRA E PAGAMENTO (WIZA) E FACTURA (VERO)
+10. COMPRA E PAGAMENTO (WIZA OU MANUAL) E FACTURA (VERO)
 /compra.html: Revisão → Contacto (OTP) → Passageiros → Pagamento.
+Etapa Pagamento ("Como queres pagar?"), três opções, por esta ordem:
+1. Pagamento manual (logótipo do WhatsApp), escolhida por defeito. O botão
+   "Continuar no WhatsApp" grava a reserva (POST /api/bookings com
+   paymentMethod "manual"; não fala com a Wiza) e abre o WhatsApp da DOT
+   (wa.me/244931343433) num separador novo com a mensagem pronta: referência,
+   rota, voos de ida e volta (dia, horas, escalas, companhias e números),
+   nomes dos passageiros, total em Kz e contacto. Não leva dados de
+   passaporte. A página passa para "Reserva guardada!" com o botão "Abrir o
+   WhatsApp" (se o browser bloquear o separador), os pontos importantes
+   (total, 72 horas, SMS depois do pagamento) e a opção "Prefiro pagar com
+   referência bancária ou Multicaixa Express", que inicia a cobrança Wiza
+   da mesma reserva (/api/bookings/<ref>/pay; a reserva passa a "wiza").
+   A equipa DOT combina o pagamento no WhatsApp e, depois de o receber,
+   usa "Confirmar pagamento à mão" no painel: SMS ao cliente e factura Vero
+   como num pagamento Wiza. Sem confirmação, expira às 72 horas.
+2. Referência bancária e Multicaixa Express (logótipos Multicaixa Express e
+   Multicaixa): o fluxo Wiza de sempre, com a janela de pagamento por cima
+   da página. Fica indisponível se a Wiza não estiver configurada.
+3. Visa ou Mastercard (logótipos a cinzento): "Indisponível de momento",
+   não seleccionável.
+Por baixo: "Como funciona" em três passos (muda com a opção), contacto e
+passageiros com "Alterar", factura com NIF e confirmação dos dados.
+Logótipos em public/assets/payments/: multicaixa.svg (site oficial
+multicaixa.ao), multicaixa-express.png (ícone oficial da app MCX Express),
+visa.svg, mastercard.svg e whatsapp.svg (Wikimedia Commons, domínio
+público; são marcas registadas dos respectivos titulares). A mensagem do
+WhatsApp é montada em public/whatsapp.js (bookingMessage, bookingLink),
+também usada na página de estado e em Minhas viagens.
+Revisão: sem o aviso "o preço em kwanzas é final…" por baixo dos voos; o
+cartão da viagem (à direita) já não tem a lista de garantias por baixo do
+total; os selos por cima das etapas são "Pagamento seguro" e "Confirmação
+por SMS".
 Passageiros: tratamento, nome(s) próprio(s) e apelido(s) como no passaporte,
 data de nascimento, nacionalidade, número, país emissor e validade do passaporte
 (tem de ser válido depois da última data da viagem; aviso se menos de 6 meses).
@@ -249,13 +285,14 @@ ATM por pagar. Reservas sem pagamento passam a expired após 72 horas.
 Verificação sem o cliente na página: POST /api/internal/sweep com cabeçalho
 x-cron-secret, GET com Authorization: Bearer CRON_SECRET (Vercel Cron Jobs),
 botão no painel, ou Cron Trigger do Worker (scheduled).
-Visual da compra (checkout.css): cabeçalho com a rota e selos de confiança,
-barra de progresso (no telemóvel só o passo actual mostra o nome), campos com
-a etiqueta dentro, cartão de embarque da viagem ao lado (ida, volta, total e
-garantias), itinerário em linha do tempo, métodos de pagamento em mosaicos,
-revisão com "Alterar", próximos passos depois de pagar e cartão ATM
-(entidade, referência com botão Copiar, valor). Na página de estado
-(compra.html?ref=…) o título mostra as cidades quando o catálogo carrega.
+Visual da compra (checkout.css): cabeçalho com a rota e os selos "Pagamento
+seguro" e "Confirmação por SMS", barra de progresso (no telemóvel só o passo
+actual mostra o nome), campos com a etiqueta dentro, cartão de embarque da
+viagem ao lado (ida, volta e total), itinerário em linha do tempo, opções de
+pagamento em cartões com logótipos, próximos passos depois de pagar e cartão
+ATM (entidade, referência com botão Copiar, valor). Na página de estado
+(compra.html?ref=…) o título mostra as cidades quando o catálogo carrega;
+num pagamento falhado, "Pagar pelo WhatsApp" abre a conversa com a reserva.
 Endpoints: POST /api/checkout/quote · POST /api/bookings · GET /api/bookings ·
 GET /api/bookings/<ref> · POST /api/bookings/<ref>/check · POST /api/bookings/<ref>/pay ·
 POST /api/payments/wiza/callback · POST /api/internal/sweep.
@@ -265,7 +302,8 @@ POST /api/payments/wiza/callback · POST /api/internal/sweep.
 de telemóvel + código SMS, sem palavra-passe. Usa o cabeçalho e o rodapé da
 home, um hero com a arte de bilhete e cada reserva como cartão de embarque:
 códigos dos aeroportos, datas, companhia, reserva DOT e, no canhoto, o código
-da reserva (PNR), o total e o botão para concluir o pagamento. Agrupa em
+da reserva (PNR), o total e o botão para concluir o pagamento ("Pagar pelo
+WhatsApp" nas reservas de pagamento manual, com a mensagem pronta). Agrupa em
 "Próximas viagens" e "Anteriores e canceladas". Os detalhes mostram pagamento
 (incluindo entidade e referência ATM), itinerário, passageiros (passaporte
 mascarado), factura (PDF) e bilhete (PNR e números).
@@ -298,7 +336,10 @@ Secções:
   desenvolvimento local o simulador devolve sempre US.
 - Câmbio e preço: definir 1 R$ = X Kz, exemplo com a taxa DOT, histórico.
 - Compras: valor total com a taxa DOT incluída (no detalhe: voo convertido +
-  taxa DOT = total cobrado), filtros, pesquisa, detalhe completo (itinerário, passageiros com nome
+  taxa DOT = total cobrado), coluna Pagamento com "Manual · WhatsApp" nas
+  reservas de pagamento manual (o detalhe explica o passo seguinte e a
+  confirmação à mão pede a justificação, por exemplo a transferência
+  recebida), filtros, pesquisa, detalhe completo (itinerário, passageiros com nome
   no formato APELIDO/NOME TÍTULO, pagamento, factura, SMS, eventos, auditoria) e
   acções: verificar pagamento, confirmar à mão (com justificação), emitir bilhete
   (PNR + SMS), emitir/actualizar factura, notas, cancelar, marcar reembolso.
@@ -323,7 +364,11 @@ Migrações (aplicar por ordem, uma vez, pelo MCP do Supabase ou no SQL Editor):
    tabela calendar_cache (cache_key, prices, created_at, expires_at), RLS
    activo, acesso só do service_role; pg_cron dot-purge-calendar-cache ao
    minuto 37 de cada hora apaga as entradas expiradas há mais de 1 hora.
-As três estão aplicadas no projecto ycbmqytyfdkrpxvjcblk.
+4. supabase/migrations/20261108031554_dot_viagens_manual_payment.sql:
+   bookings.payment_method ('wiza' por defeito ou 'manual'). As reservas
+   antigas ficaram 'wiza'. Uma reserva manual que inicia a cobrança Wiza
+   passa a 'wiza'.
+As quatro estão aplicadas no projecto ycbmqytyfdkrpxvjcblk.
 RLS activo em todas, sem políticas: anon e authenticated não acedem a nada.
 Desde 30/10/2026 o Supabase não concede acesso automático a tabelas novas; a
 migração concede ao service_role apenas select/insert/update/delete e execute.
@@ -344,7 +389,13 @@ itinerário e durações. Usado nos resultados e na compra.
 public/services.js: transporte da pesquisa.
 public/api.js, icons.js, otp-widget.js, countries.js: módulos partilhados.
 public/compra.html, compra.js, checkout.css: compra.
-public/pagar-passagens-em-kwanzas.html, guide.css, guide.js: guia (SEO).
+public/whatsapp.js: mensagem e ligação do WhatsApp (pagamento manual).
+public/assets/payments/: logótipos das formas de pagamento.
+public/blog/index.html e public/blog/<slug>.html, blog.css, blog.js: blog
+(GERADOS; não editar à mão). Os textos estão em content/blog/articles.mjs;
+depois de mudar um artigo, correr node scripts/build-blog.mjs, que reescreve
+as páginas do blog e o public/sitemap.xml e recusa travessões (— ou –) nos
+textos.
 public/robots.txt, sitemap.xml, site.webmanifest, favicon.ico, favicon-16x16.png,
 favicon-32x32.png, apple-touch-icon.png, icon-192.png, icon-512.png,
 icon-maskable-512.png: SEO e ícones (secção 17A).
@@ -412,10 +463,12 @@ Web Crypto. vercel.json:
   sitemap para o dia do build.
 - Rotas: /api/:path* → função api/index.mjs (rewrite com ?__path=; a função
   reconstrói o caminho original e o domínio https a partir de
-  x-forwarded-proto/x-forwarded-host). /admin, /minhas-viagens e
-  /pagar-passagens-em-kwanzas servem os .html; /home.html e
-  /pagar-passagens-em-kwanzas.html redireccionam (308) para os endereços
-  limpos. cleanUrls fica desligado para /resultados.html e /compra.html (e os
+  x-forwarded-proto/x-forwarded-host). /admin e /minhas-viagens servem os
+  .html; /blog serve blog/index.html e /blog/<slug> serve blog/<slug>.html.
+  Redireccionam (308): /home.html para /, /blog/index(.html) para /blog,
+  /blog/<slug>.html para /blog/<slug>, e /pagar-passagens-em-kwanzas(.html)
+  (o guia antigo) para /blog/como-pagar-passagens-aereas-em-kwanzas.
+  cleanUrls fica desligado para /resultados.html e /compra.html (e os
   retornos da Wiza) abrirem sem redireccionamento.
 - Trabalho depois da resposta (registos, SMS, factura, cache do calendário):
   waitUntil do contexto da Vercel; sem ele, a função espera antes de responder.
@@ -469,9 +522,13 @@ Barra de anúncio no gradiente do logo (dourado → laranja → laranja escuro),
 texto branco. Cabeçalho fixo: ao fazer scroll ganha sombra, linha inferior no
 gradiente da marca e logo ligeiramente reduzido (home e páginas interiores).
 Ícones: conjunto de traço único (public/icons.js, 24 px, traço 1,7, cantos
-redondos; desenhos baseados em Lucide, licença ISC) em mosaicos suaves.
-Os ícones dos benefícios (por baixo da pesquisa) e dos passos da viagem não
-têm efeito de hover: são informativos, não botões.
+redondos; desenhos baseados em Lucide, licença ISC). Na home, os ícones dos
+benefícios (por baixo da pesquisa) e dos passos da viagem aparecem sozinhos,
+a laranja e sem o mosaico de fundo, e não têm efeito de hover: são
+informativos, não botões. Noutras páginas (compra, Minhas viagens, painel)
+os ícones continuam em mosaicos suaves.
+Hero da home: "MENOS DISTÂNCIA. MAIS POSSIBILIDADES." e o título "O mundo à
+tua espera." (o H1), como no desenho original.
 O banner usa a arte assets/banner-passaporte-dot.jpg: mão com passaporte
 angolano e bilhete DOT. É uma ilustração publicitária, não um bilhete real.
 A frase da arte (que dizia "Estamos a preparar…") passou a ser a mesma do
@@ -510,30 +567,47 @@ Home (/):
 - title "Passagens aéreas baratas em kwanzas | DOT Viagens Angola", meta
   description, canonical, hreflang pt-AO e x-default, robots com
   max-image-preview:large, Open Graph e Twitter com assets/og-dot-viagens.jpg.
-- H1 (o texto pequeno por cima do slogan): "Passagens aéreas baratas · Paga em
-  kwanzas". O slogan "O mundo à tua espera." mantém o mesmo visual.
-- Secção "Passagens aéreas baratas, pagas em kwanzas": texto e botões de rota
-  a partir de Luanda (Lisboa, Porto, São Paulo, Dubai, Joanesburgo, Cidade do
-  Cabo, Paris, Istambul) e ligação para o guia.
+- H1: o slogan "O mundo à tua espera." (hero como no desenho original). As
+  palavras-chave estão no title, na descrição e nas perguntas frequentes.
 - Dados estruturados JSON-LD: TravelAgency (contacto WhatsApp, Luanda, AOA,
   Multicaixa Express e Referência, DOT Angola), WebSite e FAQPage.
-Guia /pagar-passagens-em-kwanzas: passos, formas de pagamento, o que acontece
-depois, preço final e perguntas; JSON-LD WebPage, BreadcrumbList e FAQPage.
+- Ligação para o blog no rodapé de todas as páginas ("Blog").
+Blog (/blog): é aqui que fica o conteúdo para o Google. Índice com o artigo
+em destaque e os restantes em cartões; cada artigo tem breadcrumb, categoria,
+data, tempo de leitura, capa, texto, caixa "Pesquisar voos", perguntas
+frequentes e "Continua a ler" com três artigos. JSON-LD: Blog e
+BreadcrumbList no índice; BlogPosting, BreadcrumbList e FAQPage nos artigos.
+Artigos (content/blog/articles.mjs):
+- /blog/passagens-aereas-baratas-em-angola (passagens aéreas baratas,
+  passagens baratas, passagens aéreas Angola);
+- /blog/como-pagar-passagens-aereas-em-kwanzas (pagar passagens e bilhetes em
+  kwanzas; substitui o antigo guia /pagar-passagens-em-kwanzas);
+- /blog/bilhetes-de-aviao-baratos (bilhetes baratos, ida e volta, escalas);
+- /blog/multicaixa-express-ou-referencia (pagar bilhetes com Multicaixa
+  Express, referência ou WhatsApp);
+- /blog/passagens-luanda-lisboa e /blog/passagens-luanda-sao-paulo (rotas).
+Regras de escrita dos artigos: português de Angola com "tu", sem travessões
+(o build recusa — e –), factos verificáveis e prudentes (vistos e vacinas:
+remeter sempre para o consulado), title até ~60 caracteres e descrição até
+~160. A capa do artigo de Lisboa é a foto assets/lisboa.jpg, que mostra a
+Ribeira do Porto (o alt diz isso; o artigo fala de Lisboa e do Porto).
 Regra: o texto das perguntas no JSON-LD (FAQPage) tem de ser IGUAL ao das
-perguntas visíveis. Ao mudar uma, mudar a outra.
+perguntas visíveis. Na home, mudar as duas à mão; no blog, o build gera as
+duas a partir do mesmo texto.
 Páginas fora do Google: resultados, compra, Minhas viagens, painel e /api
 (meta robots noindex, X-Robots-Tag e Disallow no robots.txt). Os resultados
 não são indexados porque cada visita faz pesquisas pagas na SerpApi e os
 preços mudam constantemente.
-sitemap.xml: / e /pagar-passagens-em-kwanzas (com imagens). robots.txt aponta
-para o sitemap.
+sitemap.xml (gerado por scripts/build-blog.mjs): /, /blog e os 6 artigos,
+com imagens. robots.txt aponta para o sitemap.
 Velocidade (Core Web Vitals): paisagens em JPG com srcset (960 px no
 telemóvel), primeira imagem pré-carregada com fetchpriority=high, restantes
 imagens lazy, fontes por <link> com preconnect, arte dos bilhetes em WebP e
 não descarregada no telemóvel (onde está escondida). Publicação: ~6 MB.
 Depois de publicar: Google Search Console → adicionar o domínio → Sitemaps →
-submeter /sitemap.xml. Próximo passo sugerido: páginas por rota (por exemplo
-"Passagens Luanda Lisboa") com conteúdo próprio e verdadeiro.
+submeter /sitemap.xml. Próximo passo sugerido: mais artigos de rota (Dubai,
+Joanesburgo, Cidade do Cabo, Porto) e de viagem (documentos, bagagem),
+publicados com regularidade.
 
 18. MANUTENÇÃO DESTA DOCUMENTAÇÃO
 Este ficheiro descreve a versão entregue e deve acompanhar cada actualização
@@ -541,8 +615,9 @@ de código, com revisão das secções afectadas. Não se actualiza sozinho por
 software. Incluí-lo sempre no ZIP e entregar uma cópia TXT separada.
 Testes automáticos do projecto: 14 (pesquisa, tokens, preços, cache, validação,
 filtros). O fluxo de compra, OTP, pagamentos, callbacks, factura, taxa DOT,
-calendário (incluindo o cache partilhado), jornadas de pesquisa e painel ao
-vivo foi validado com fornecedores simulados (41 verificações) e no browser
+calendário (incluindo o cache partilhado), pagamento manual (WhatsApp),
+jornadas de pesquisa e painel ao vivo foi validado com fornecedores
+simulados (42 verificações) e no browser
 (desktop e telemóvel 320–390 px), mais uma consulta real ao calendário da
 SerpApi; o adaptador da Vercel (api/index.mjs) e o build foram testados
 localmente. Estas verificações ainda não estão no repositório como testes

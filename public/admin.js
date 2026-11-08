@@ -43,6 +43,8 @@ const KIND = { view: 'Ida · data escolhida', prefetch: 'Ida · data vizinha', r
 const SMS_STATUS = { queued: 'Em fila', sent: 'Enviada', delivered: 'Entregue', undelivered: 'Não entregue', failed: 'Falhou', expired: 'Expirou' };
 const SMS_PURPOSE = { otp: 'Código de acesso', payment_confirmed: 'Pagamento confirmado', ticket_issued: 'Bilhete emitido', booking_cancelled: 'Cancelamento' };
 const SERVICE = { gpo: 'Multicaixa Express', reference: 'Referência' };
+// Payment column: the Wiza method, or "Manual · WhatsApp" when the customer chose to pay with the DOT team.
+const paymentMethodLabel = row => (row.payment_method === 'manual' ? 'Manual · WhatsApp' : SERVICE[row.wiza_service] || row.wiza_service || '—');
 const AUDIT = {
   'rate.set': 'Câmbio definido',
   'booking.recheck': 'Pagamento verificado',
@@ -683,7 +685,7 @@ async function bookingsView(params, ctx) {
       <td>${esc(city(row.origin))} ${row.trip_type === 'return' ? '⇄' : '→'} ${esc(city(row.destination))}<small>${esc(formatDate(row.departure_date))}${row.return_date ? ` — ${esc(formatDate(row.return_date))}` : ''} · ${plural(row.passengers_count, 'adulto', 'adultos')}</small></td>
       <td class="num">${amountCell(row)}</td>
       <td>${statusBadge(row.status)}${row.needs_review ? '<small class="flag" style="margin-top:6px">Rever</small>' : ''}${row.ticket_pnr ? `<small>PNR ${esc(row.ticket_pnr)}</small>` : ''}</td>
-      <td>${esc(SERVICE[row.wiza_service] || row.wiza_service || '—')}<small>${esc(row.wiza_status || '')}${row.wiza_status_code ? ` · ${esc(row.wiza_status_code)}` : ''}</small></td>
+      <td>${esc(paymentMethodLabel(row))}<small>${row.payment_method === 'manual' && !row.wiza_status ? 'combinar no WhatsApp' : `${esc(row.wiza_status || '')}${row.wiza_status_code ? ` · ${esc(row.wiza_status_code)}` : ''}`}</small></td>
       <td>${row.vero_invoice_number ? esc(row.vero_invoice_number) : row.vero_error ? '<span class="no-dot">Erro</span>' : '—'}<small>${esc(row.vero_agt_status || '')}</small></td></tr>`).join(''), 'Nenhuma compra encontrada.')}
     ${pager(data.total, offset, limit, base)}`;
   $('#search').onsubmit = event => {
@@ -761,9 +763,10 @@ function renderBooking(data) {
         ${table('<th>Quando</th><th>Origem</th><th>Resultado</th><th>Detalhes</th>', data.events.map(event => `<tr><td>${esc(formatDateTime(event.created_at))}</td><td>${esc(event.source)}</td><td><strong>${esc(event.outcome || '')}</strong></td><td><div class="code-box">${esc(JSON.stringify(event.payload || {}, null, 1))}</div></td></tr>`).join(''), 'Sem eventos.')}</div>
     </div><div>
       <div class="admin-card"><h2>${hIcon('user')} Contacto</h2><div class="kv"><div><small>Nome</small><strong>${esc(b.contact_name)}</strong></div><div><small>Telemóvel</small><strong>${esc(formatPhone(b.contact_phone))}</strong></div><div><small>E-mail</small><strong>${esc(b.contact_email)}</strong></div><div><small>Conta</small><strong>${esc(b.customer?.name || '—')}</strong></div></div></div>
-      <div class="admin-card"><h2>${hIcon('wallet')} Pagamento · Wiza</h2><div class="kv">
+      <div class="admin-card"><h2>${hIcon('wallet')} Pagamento · ${b.payment_method === 'manual' ? 'Manual (WhatsApp)' : 'Wiza'}</h2>
+        ${b.payment_method === 'manual' && open ? `<div class="notice" style="margin:0 0 12px">${icon('message', 18)}<div>O cliente escolheu <b>pagamento manual</b> e foi para o WhatsApp da DOT com a referência ${esc(b.reference)}. Depois de receberes o pagamento, usa <b>Confirmar pagamento à mão</b>: o cliente recebe o SMS e a factura é emitida.</div></div>` : ''}<div class="kv">
         <div><small>Estado</small><strong>${esc(b.wiza_status || '—')}${b.wiza_status_code ? ` · ${esc(b.wiza_status_code)}` : ''}</strong></div>
-        <div><small>Método</small><strong>${esc(SERVICE[b.wiza_service] || b.wiza_service || '—')}</strong></div>
+        <div><small>Método</small><strong>${esc(paymentMethodLabel(b))}</strong></div>
         <div><small>Tentativas</small><strong>${esc(b.payment_attempts)}</strong></div>
         <div><small>Referência enviada</small><strong class="mono">${esc(b.wiza_reference_id || '—')}</strong></div>
         <div><small>ID do pagamento</small><strong class="mono">${esc(b.wiza_payment_id || '—')}</strong></div>
@@ -816,8 +819,10 @@ function renderBooking(data) {
       const forms = {
         confirm_manual: {
           title: 'Confirmar pagamento à mão',
-          text: 'Usa apenas depois de confirmares o pagamento no painel da Wiza (por exemplo, uma referência paga cujo callback não foi validado). O cliente recebe o SMS de pagamento e a factura é emitida.',
-          fields: '<label class="form-field"><span>Justificação</span><textarea name="note" required maxlength="300" placeholder="Ex.: pagamento confirmado no painel da Wiza às 14:32"></textarea></label>',
+          text: b.payment_method === 'manual'
+            ? 'Pagamento manual combinado no WhatsApp. Usa depois de confirmares que o valor entrou na conta da DOT. O cliente recebe o SMS de pagamento e a factura é emitida.'
+            : 'Usa apenas depois de confirmares o pagamento no painel da Wiza (por exemplo, uma referência paga cujo callback não foi validado). O cliente recebe o SMS de pagamento e a factura é emitida.',
+          fields: `<label class="form-field"><span>Justificação</span><textarea name="note" required maxlength="300" placeholder="${b.payment_method === 'manual' ? 'Ex.: transferência recebida às 14:32, comprovativo no WhatsApp' : 'Ex.: pagamento confirmado no painel da Wiza às 14:32'}"></textarea></label>`,
           confirm: 'Confirmar pagamento',
           body: form => ({ action, note: form.get('note') }),
         },

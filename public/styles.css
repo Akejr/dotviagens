@@ -94,30 +94,9 @@ a.account{display:inline-flex;align-items:center}
 @media(prefers-reduced-motion:reduce){.price-dot,.calendar-legend .legend-loading:before{animation:none}}
 /* Benefit and step icons are static (no hover effect). */
 .benefit-icon,.steps b.step-icon{transition:none}
-/* SEO: the H1 is the keyword line above the slogan; the slogan keeps the original headline look. */
-.hero-content .hero-kicker{font-family:'DM Sans',sans-serif;font-size:10px;font-weight:700;line-height:1.5;letter-spacing:2px;text-transform:uppercase;margin:0;color:#f5f6f0;animation-delay:.05s}
-.hero-content .hero-slogan{font-family:Manrope,sans-serif;font-size:76px;font-weight:600;line-height:1.08;letter-spacing:-4.2px;margin:22px 0;color:#fff;animation-delay:.12s}
-.hero-content .hero-slogan em{font-style:normal;background:linear-gradient(110deg,#ffd279,#ff9800 55%,#ff772b);background-clip:text;-webkit-background-clip:text;color:transparent}
-@media(min-width:1500px){.hero-content .hero-slogan{font-size:86px}}
-@media(max-width:760px){.hero-content .hero-kicker{font-size:8px;letter-spacing:1.3px}.hero-content .hero-slogan{font-size:58px;letter-spacing:-3px;margin:23px 0 17px}}
-/* "Passagens aéreas em Angola" content block and routes from Luanda */
-.seo-intro{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:56px;align-items:start;padding:70px 0;border-top:1px solid var(--line)}
-.seo-copy p{font-size:13px;line-height:1.85;color:var(--muted);margin-top:16px;max-width:560px}
-.seo-link{display:inline-flex;align-items:center;gap:10px;margin-top:22px;font-size:13px;font-weight:650;color:#c24a00;border-bottom:1px solid #f5c39c;padding-bottom:5px}
-.seo-link span{transition:transform .25s var(--ease)}
-.seo-link:hover{color:var(--orange);border-color:var(--orange)}
-.seo-link:hover span{transform:translateX(3px)}
-.seo-routes{background:var(--cream);border:1px solid var(--line);border-radius:22px;padding:26px}
-.seo-routes h3{font-size:17px;letter-spacing:-.3px}
-.seo-routes>p{font-size:12px;color:var(--muted);margin-top:6px}
-.route-list{list-style:none;margin:18px 0 0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-.route-list button{width:100%;text-align:left;border:1px solid #ebe7de;background:#fff;border-radius:14px;padding:13px 15px;display:flex;flex-direction:column;gap:3px;color:var(--ink)}
-.route-list button strong{font-size:13px;font-weight:650}
-.route-list button span{font-size:11px;color:var(--muted)}
-.route-list button:hover{border-color:#f8b18d;background:#fff7f1}
-.route-list button:hover strong{color:#c24a00}
-@media(max-width:900px){.seo-intro{grid-template-columns:1fr;gap:30px;padding:45px 0}}
-@media(max-width:420px){.route-list{grid-template-columns:1fr}}
+/* Home: benefit and step icons on their own, without the orange tile behind them. */
+.benefits .benefit-icon,.steps b.step-icon{width:auto;height:auto;border-radius:0;background:none;box-shadow:none}
+.benefits .benefit-icon svg,.steps b.step-icon svg{width:28px;height:28px}
 /* Shared footer on every public page */
 .site-footer{margin-top:0}
 .site-footer .brand img{width:118px;height:auto}

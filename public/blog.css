@@ -1,0 +1,104 @@
+/* Blog (index + articles). Loaded after styles.css. Same tokens as the home: Manrope titles, DM Sans text. */
+.blog-page{background:#fff}
+.crumbs{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;font-size:12px;color:var(--muted);padding:6px 0 16px}
+.crumbs a:hover{color:var(--orange)}
+.crumbs [aria-current]{color:var(--ink);font-weight:600}
+
+/* Index */
+.blog-hero{padding:46px 56px 50px;border-radius:30px;background:linear-gradient(115deg,#fff7e8 0%,#fff0e4 58%,#ffe6d5 100%)}
+.blog-hero h1{font-size:50px;font-weight:650;letter-spacing:-2.2px;line-height:1.08;margin:14px 0 16px;max-width:760px;color:var(--ink);animation:none}
+.blog-hero h1 em{font-style:normal;background:var(--brand-gradient);-webkit-background-clip:text;background-clip:text;color:transparent}
+.blog-hero p{font-size:15px;color:#7a6a5c;line-height:1.8;max-width:600px}
+.blog-list{padding:34px 0 10px}
+.post-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:22px}
+.post-card{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:24px;overflow:hidden;background:#fff;transition:border-color .2s,box-shadow .25s,transform .3s var(--ease)}
+.post-card:hover{border-color:#f6c9a6;box-shadow:0 18px 40px #3a1c0412;transform:translateY(-3px)}
+.post-card-img{display:block;aspect-ratio:16/10;overflow:hidden;background:#f4f1ea}
+.post-card-img img{width:100%;height:100%;object-fit:cover;display:block}
+.post-card-img.art{display:grid;place-items:center;padding:18px 22px;background:linear-gradient(115deg,#fff7e8,#ffe6d5)}
+.post-card-img.art img{width:88%;height:auto;object-fit:contain;transform:rotate(-4deg);filter:drop-shadow(0 16px 24px #a3480024)}
+.post-card-body{display:flex;flex-direction:column;gap:8px;padding:20px 22px 22px;flex:1}
+.post-card-body small{font-size:10.5px;font-weight:700;letter-spacing:1.1px;text-transform:uppercase;color:#c24a00}
+.post-card-body strong{font-family:Manrope,sans-serif;font-size:19px;font-weight:700;line-height:1.3;letter-spacing:-.4px;color:var(--ink)}
+.post-card-body>span{font-size:13px;line-height:1.7;color:var(--muted)}
+.post-card-body em{margin-top:auto;padding-top:6px;font-style:normal;font-size:12.5px;font-weight:700;color:#c24a00}
+.post-card-body em i{font-style:normal;display:inline-block;transition:transform .25s var(--ease)}
+.post-card:hover .post-card-body em i{transform:translateX(3px)}
+.post-card.featured{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);margin-bottom:22px}
+.post-card.featured .post-card-img{aspect-ratio:auto;min-height:340px}
+.post-card.featured .post-card-body{justify-content:center;padding:40px 44px}
+.post-card.featured .post-card-body strong{font-size:30px;letter-spacing:-1px}
+.post-card.featured .post-card-body>span{font-size:14px}
+.blog-cta,.post-cta{display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap;border-radius:24px;background:var(--brand-gradient);color:#fff}
+.blog-cta{margin:50px auto 80px;padding:34px 40px}
+.blog-cta h2{color:#fff;margin:0;font-size:28px}
+.blog-cta p{color:#fff;opacity:.92;font-size:13px;margin-top:6px}
+.blog-cta .white-btn,.post-cta .white-btn{margin:0;color:var(--ink);font-size:12px;white-space:nowrap}
+
+/* Article */
+.post{padding-bottom:20px}
+.post-head{max-width:820px;margin:18px auto 0;text-align:center}
+.post-category{display:inline-block;font-size:11px;font-weight:800;letter-spacing:1.4px;text-transform:uppercase;color:#c24a00;background:#fff3e8;border:1px solid #fbd9bd;border-radius:30px;padding:6px 14px}
+.post-head h1{font-size:46px;font-weight:650;letter-spacing:-1.9px;line-height:1.1;margin:18px 0 16px;color:var(--ink);animation:none}
+.post-lead{font-size:17px;line-height:1.75;color:#6f6559;max-width:700px;margin:0 auto}
+.post-meta{display:flex;justify-content:center;flex-wrap:wrap;gap:6px 16px;margin-top:18px;font-size:12.5px;color:#8a8f84}
+.post-meta span+span:before{content:'·';margin-right:16px;color:#d2c6b8}
+.post-cover{margin:34px auto 0;max-width:1120px;border-radius:28px;overflow:hidden;aspect-ratio:16/7;background:#f4f1ea}
+.post-cover img{width:100%;height:100%;object-fit:cover;display:block}
+.post-cover.art{display:grid;place-items:center;padding:30px;background:linear-gradient(115deg,#fff7e8 0%,#fff0e4 58%,#ffe6d5 100%)}
+.post-cover.art img{width:auto;height:100%;max-height:300px;object-fit:contain;transform:rotate(-4deg);filter:drop-shadow(0 26px 40px #a3480026)}
+.post-body{max-width:720px;margin:44px auto 0;font-size:16px;line-height:1.85;color:#3d4037}
+.post-body h2{font-size:28px;letter-spacing:-.9px;line-height:1.25;margin:46px 0 14px;color:var(--ink)}
+.post-body h3{font-size:19px;letter-spacing:-.3px;line-height:1.35;margin:28px 0 8px;color:var(--ink)}
+.post-body p{font-size:16px;line-height:1.85;color:#3d4037;margin:0 0 18px}
+.post-body a:not(.white-btn){color:#c24a00;font-weight:600;border-bottom:1px solid #f5c39c}
+.post-body a:not(.white-btn):hover{color:var(--orange);border-color:var(--orange)}
+.post-body ul,.post-body ol{margin:0 0 22px;padding-left:22px}
+.post-body li{margin:0 0 10px;padding-left:4px}
+.post-body li::marker{color:var(--orange);font-weight:700}
+.post-body strong{color:var(--ink);font-weight:700}
+.post-steps{list-style:none;counter-reset:step;padding:0!important;display:grid;gap:12px}
+.post-steps li{counter-increment:step;position:relative;margin:0;padding:16px 18px 16px 62px!important;border:1px solid var(--line);border-radius:18px;background:#fff}
+.post-steps li:before{content:counter(step);position:absolute;left:16px;top:15px;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-size:13px;font-weight:800;color:#fff;background:var(--brand-gradient)}
+.post-tip{margin:26px 0;padding:18px 20px;border-radius:18px;background:#fff7ef;border:1px solid #fde1c8}
+.post-tip strong{display:block;font-size:15px;margin-bottom:6px;color:#9a4000}
+.post-tip p{margin:0;font-size:15px;line-height:1.75;color:#6b5a49}
+.post-table-wrap{overflow-x:auto;margin:6px 0 24px;border:1px solid var(--line);border-radius:18px}
+.post-table{width:100%;border-collapse:collapse;font-size:14px;line-height:1.55}
+.post-table th{text-align:left;font-size:12px;letter-spacing:.4px;color:#8a6a4e;background:#fbf8f3;padding:12px 16px}
+.post-table td{padding:13px 16px;border-top:1px solid #f1ece4;vertical-align:top}
+.post-table td:first-child{font-weight:700;color:var(--ink);white-space:nowrap}
+.post-cta{margin:40px 0 10px;padding:26px 28px}
+.post-cta strong{display:block;font-family:Manrope,sans-serif;font-size:21px;letter-spacing:-.4px;color:#fff}
+.post-cta p{margin:6px 0 0!important;font-size:13.5px!important;line-height:1.6!important;color:#fff!important;opacity:.92}
+.post-faq{margin-top:46px}
+.post-faq h2{margin-top:0}
+.post-faq summary{font-size:15px;font-weight:600;padding:18px 0}
+.post-faq details p{font-size:14.5px;line-height:1.8;color:#5f6457;margin:0 0 18px}
+.post-related{padding:70px 0 90px}
+.post-related-head h2{font-size:30px;letter-spacing:-1px;margin:10px 0 24px}
+
+@media(max-width:1000px){.post-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.post-card.featured{grid-template-columns:1fr}.post-card.featured .post-card-img{min-height:0;aspect-ratio:16/9}.post-card.featured .post-card-body{padding:26px 26px 28px}}
+@media(max-width:760px){
+  .blog-hero{padding:30px 22px 32px;border-radius:24px}
+  .blog-hero h1{font-size:34px;letter-spacing:-1.3px}
+  .blog-hero p{font-size:14px}
+  .post-grid{grid-template-columns:1fr;gap:16px}
+  .post-card.featured .post-card-body strong{font-size:23px}
+  .blog-cta{padding:26px 22px;margin:36px auto 50px}
+  .blog-cta h2{font-size:23px}
+  .post-head{text-align:left}
+  .post-head h1{font-size:32px;letter-spacing:-1.2px}
+  .post-lead{font-size:15.5px;margin:0}
+  .post-meta{justify-content:flex-start;gap:4px 14px}
+  .post-meta span+span:before{display:none}
+  .post-cover{aspect-ratio:4/3;border-radius:20px;margin-top:24px}
+  .post-cover.art{aspect-ratio:16/10;padding:18px}
+  .post-body{margin-top:30px;font-size:15.5px}
+  .post-body h2{font-size:23px;margin-top:36px}
+  .post-body p{font-size:15.5px}
+  .post-cta{padding:22px 20px}
+  .post-cta .white-btn{width:100%;justify-content:space-between}
+  .post-related{padding:50px 0 60px}
+  .post-related-head h2{font-size:24px}
+}

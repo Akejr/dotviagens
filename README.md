@@ -2,9 +2,10 @@
 
 Pesquisa e compra de voos em kwanzas: selecção de ida e volta, calendário com o
 preço indicativo de cada dia, preço final = câmbio do dia + taxa DOT de 11%,
-verificação do telemóvel por SMS, dados dos passageiros, pagamento Multicaixa
-Express ou Referência (Wiza), factura certificada (Vero), área Minhas viagens e
-painel de administração em tempo real em `/admin`.
+verificação do telemóvel por SMS, dados dos passageiros, pagamento manual pelo
+WhatsApp ou Multicaixa Express e referência (Wiza), factura certificada (Vero),
+área Minhas viagens, blog em `/blog` e painel de administração em tempo real em
+`/admin`.
 
 A documentação completa está em **MECANICA_DO_SISTEMA.txt**.
 
@@ -51,6 +52,14 @@ Supabase (já aplicadas em `ycbmqytyfdkrpxvjcblk`):
 1. `20261107200641_dot_viagens_core.sql`
 2. `20261107214259_dot_viagens_live_pricing.sql`
 3. `20261107233029_dot_viagens_calendar_cache.sql` (cache partilhado do calendário)
+4. `20261108031554_dot_viagens_manual_payment.sql` (pagamento manual pelo WhatsApp)
+
+## Blog
+
+Os artigos estão em `content/blog/articles.mjs`. Depois de editar, correr
+`node scripts/build-blog.mjs`: gera `public/blog/*.html` e `public/sitemap.xml`
+(não editar esses ficheiros à mão). O script recusa travessões (— ou –) nos
+textos.
 
 Configure as chaves somente no ambiente do servidor (Vercel ou `.dev.vars`).
 Nunca no frontend nem no repositório.

@@ -98,11 +98,48 @@
 .passenger-head h3{font-size:16px;margin:0;letter-spacing:-.3px}
 .passenger-head small{display:block;font-size:12px;color:#8a8f84;margin-top:2px}
 
-/* Payment */
-.pay-methods{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
-.pay-method{display:flex;gap:14px;align-items:flex-start;border:1px solid #f0e9df;border-radius:18px;padding:16px;background:#fdfcfa}
-.pay-method strong{display:block;font-size:14px}
-.pay-method small{display:block;font-size:12px;color:#857b70;line-height:1.55;margin-top:4px}
+/* Payment: three options (WhatsApp, Wiza, cards unavailable) as selectable cards with the brand logos */
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.pay-options{display:grid;gap:12px;margin:22px 0 0;padding:0;border:0;min-width:0}
+.pay-option{position:relative;display:grid;grid-template-columns:172px minmax(0,1fr) 26px;align-items:center;gap:20px;padding:16px 20px 16px 16px;border:1.5px solid #efe7dc;border-radius:20px;background:#fff;cursor:pointer;transition:border-color .2s,box-shadow .25s,background .2s}
+.pay-option input{position:absolute;opacity:0;pointer-events:none}
+.pay-option:hover{border-color:#f6c39b}
+.pay-option:has(input:focus-visible){outline:2px solid #f57a1f;outline-offset:3px}
+.pay-option.is-selected{border-color:#f57a1f;background:linear-gradient(135deg,#fffaf5,#fff2e6);box-shadow:0 14px 34px #ef590017}
+.pay-logos{height:76px;display:flex;align-items:center;justify-content:center;gap:10px;padding:10px;border-radius:16px;background:#fff;border:1px solid #f0e9df;box-shadow:0 4px 12px #3a1c0408}
+.pay-logos img{display:block;height:auto;max-width:100%}
+.pay-logos .logo-app{width:42px;height:42px;border-radius:11px;box-shadow:0 2px 6px #ff7c0033}
+.pay-logos .logo-word{width:100px}
+.pay-logos .logo-visa{width:56px}
+.pay-logos .logo-mc{width:42px}
+.pay-copy strong{display:block;font-size:15px;font-weight:700;color:var(--ink);letter-spacing:-.1px}
+.pay-copy small{display:block;font-size:12.5px;color:#857b70;line-height:1.55;margin-top:4px}
+.pay-tag{display:inline-flex;align-items:center;gap:5px;margin-top:9px;font-style:normal;font-size:11px;font-weight:700;letter-spacing:.2px;color:#2f7a42;background:#e9f6ec;border-radius:20px;padding:4px 10px}
+.pay-tag.muted{color:#7a7f74;background:#f0efea}
+.pay-radio{width:24px;height:24px;border-radius:50%;border:2px solid #e2d8cb;display:grid;place-items:center;background:#fff;transition:border-color .2s,background .2s}
+.pay-option.is-selected .pay-radio{border-color:transparent;background:var(--brand-gradient);box-shadow:0 4px 10px #ef590033}
+.pay-option.is-selected .pay-radio:after{content:'';width:8px;height:8px;border-radius:50%;background:#fff}
+.pay-option.is-disabled{grid-template-columns:172px minmax(0,1fr);cursor:not-allowed;background:#fbfaf7;border-style:dashed}
+.pay-option.is-disabled:hover{border-color:#efe7dc}
+.pay-option.is-disabled .pay-logos{box-shadow:none}
+.pay-option.is-disabled .pay-logos img{filter:grayscale(1);opacity:.5}
+.pay-option.is-disabled .pay-copy strong,.pay-option.is-disabled .pay-copy small{color:#9a9e93}
+.pay-how{display:flex;align-items:center;gap:16px;margin-top:16px;padding:14px 18px;border-radius:16px;background:#faf8f4;border:1px solid #f0e9df}
+.pay-how>span{flex:none;font-size:11px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;color:#c24a00}
+.pay-steps{list-style:none;margin:0;padding:0;flex:1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.pay-steps li{display:flex;align-items:center;gap:9px;font-size:12.5px;line-height:1.4;color:#5f6457}
+.pay-steps b{width:24px;height:24px;flex:none;border-radius:50%;display:grid;place-items:center;font-size:11px;color:#c24a00;background:#fff;border:1px solid #f3d6bd}
+/* WhatsApp actions: WhatsApp green, dark enough for white text */
+.primary.whatsapp-btn{background:linear-gradient(135deg,#119048,#0b6f3b);box-shadow:0 8px 20px #0b6f3b33}
+.primary.whatsapp-btn:hover{background:linear-gradient(135deg,#0f8541,#095f32);box-shadow:0 10px 24px #0b6f3b40}
+.whatsapp-btn .wa-glyph{width:20px;height:20px;flex:none}
+/* Status after choosing manual payment */
+.round-icon.wa-icon{background:linear-gradient(145deg,#f1fbf3,#dff3e4);box-shadow:inset 0 0 0 1px #c9e9d1}
+.round-icon.wa-icon img{width:40px;height:40px}
+.manual-facts{list-style:none;margin:22px auto 0;padding:16px 18px;max-width:520px;display:grid;gap:10px;text-align:left;border-radius:16px;background:#faf8f4;border:1px solid #f0e9df}
+.manual-facts li{display:flex;align-items:flex-start;gap:10px;font-size:13px;line-height:1.55;color:#5f6457}
+.manual-facts svg{flex:none;margin-top:2px;color:var(--orange)}
+.switch-pay{margin:16px auto 0}
 .review-list{margin-top:18px;border:1px solid #f0e9df;border-radius:18px;overflow:hidden}
 .review-row{display:grid;grid-template-columns:130px minmax(0,1fr) auto;gap:14px;align-items:start;padding:15px 18px;background:#fff}
 .review-row+.review-row{border-top:1px solid #f3eee6}
@@ -150,16 +187,13 @@
 .trip-line i:after{content:'✈';position:absolute;left:50%;top:-11px;transform:translateX(-50%);width:22px;height:22px;border-radius:50%;display:grid;place-items:center;background:#fff;color:var(--orange);font-size:13px;font-style:normal}
 .trip-line em{position:absolute;top:26px;font-style:normal;font-size:10.5px;color:#8a8f84;white-space:nowrap}
 .trip-airlines{display:block;font-size:12px;color:#8a8f84;margin-top:16px;line-height:1.5}
-.trip-total{position:relative;margin:4px -22px 0;padding:18px 22px 4px;border-top:2px dashed #f0d2b6;background:linear-gradient(155deg,#fff9f1,#fff3ea)}
+.trip-total{position:relative;margin:4px -22px -18px;padding:18px 22px 20px;border-top:2px dashed #f0d2b6;background:linear-gradient(155deg,#fff9f1,#fff3ea)}
 .trip-total:before,.trip-total:after{content:'';position:absolute;top:-13px;width:24px;height:24px;border-radius:50%;background:#faf9f6;border:1px solid #efe7dc}
 .trip-total:before{left:-13px}
 .trip-total:after{right:-13px}
 .trip-total>span{font-size:12px;font-weight:700;letter-spacing:.4px;color:#8a6a4e}
 .trip-total strong{display:block;font-family:Manrope,sans-serif;font-size:32px;font-weight:800;letter-spacing:-1.1px;color:#d14f00;margin:6px 0 4px}
-.trip-total p{font-size:12px;color:#8a7766;line-height:1.6;padding-bottom:12px}
-.trip-trust{list-style:none;margin:0 -22px -18px;padding:14px 22px 16px;display:grid;gap:8px;background:#fff8f0;border-top:1px solid #f5e6d6}
-.trip-trust li{display:flex;align-items:center;gap:9px;font-size:12px;color:#7a6a5c}
-.trip-trust svg{color:var(--orange)}
+.trip-total p{font-size:12px;color:#8a7766;line-height:1.6}
 
 /* Badges */
 .badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;border-radius:30px;padding:5px 11px;background:#f1f2ee;color:#5c6256;white-space:nowrap}
@@ -255,7 +289,20 @@
   .panel{padding:20px 16px;border-radius:20px}
   .form-grid{grid-template-columns:1fr}
   .leg-card,.passenger-card{padding:16px}
-  .pay-methods{grid-template-columns:1fr}
+  /* Phones: logos and radio on the first row, the text gets the full width below. */
+  .pay-option,.pay-option.is-disabled{grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:"logos . radio" "copy copy copy";gap:12px 10px;padding:14px;border-radius:18px}
+  .pay-option.is-disabled{grid-template-areas:"logos . ." "copy copy copy"}
+  .pay-logos{grid-area:logos;height:56px;min-width:96px;gap:8px;padding:8px 12px;border-radius:14px}
+  .pay-copy{grid-area:copy}
+  .pay-radio{grid-area:radio;width:22px;height:22px}
+  .pay-logos .logo-app{width:36px;height:36px;border-radius:10px}
+  .pay-logos .logo-word{width:92px}
+  .pay-logos .logo-visa{width:46px}
+  .pay-logos .logo-mc{width:34px}
+  .pay-copy strong{font-size:14px}
+  .pay-copy small{font-size:12px}
+  .pay-how{flex-direction:column;align-items:flex-start;gap:10px}
+  .pay-steps{grid-template-columns:1fr;gap:8px}
   .review-row{grid-template-columns:1fr auto}
   .review-row>span{grid-column:1/-1}
   .choice-list .form-grid{margin-left:0}

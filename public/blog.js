@@ -1,4 +1,4 @@
-// Content pages: sticky header highlight and the account icon, like the home.
+// Blog pages: sticky header highlight and the account icon, like the home.
 import { stickyHeader } from './api.js';
 import { icon } from './icons.js';
 

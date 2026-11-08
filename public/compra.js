@@ -4,6 +4,7 @@ import { mountOtp } from './otp-widget.js';
 import { countryOptions } from './countries.js';
 import { loadAirports } from './airports.js';
 import { airlineMark, airlineNames, legTimeline } from './itinerary-ui.js';
+import { bookingLink, bookingMessage, whatsappLink } from './whatsapp.js';
 
 const $ = selector => document.querySelector(selector);
 const STORE_KEY = 'dot-checkout-v1';
@@ -13,7 +14,7 @@ const STEPS = [['review', 'Revisão'], ['contact', 'Contacto'], ['passengers', '
 const params = new URLSearchParams(location.search);
 const main = $('#checkout-main');
 const aside = $('#checkout-aside');
-const state = { step: 'review', itinerary: null, quote: null, customer: null, contact: { name: '', email: '' }, passengers: [], invoice: { wanted: false, nif: '', name: '' }, accept: false };
+const state = { step: 'review', itinerary: null, quote: null, customer: null, contact: { name: '', email: '' }, passengers: [], invoice: { wanted: false, nif: '', name: '' }, accept: false, method: 'manual' };
 let cities = {};
 let airportNames = {};
 let poll = null;
@@ -63,8 +64,7 @@ function legSummary(leg, label) {
 function tripCard({ passengers, outbound, inbound, amountAoa, totalLabel, note = '' }) {
   return `<div class="trip-card"><div class="trip-card-head"><span class="eyebrow">A TUA VIAGEM</span><span>${inbound ? 'Ida e volta' : 'Só ida'} · ${plural(passengers, 'adulto', 'adultos')}</span></div>
     ${legSummary(outbound, 'IDA')}${inbound ? legSummary(inbound, 'VOLTA') : ''}
-    <div class="trip-total"><span>${esc(totalLabel)}</span><strong>${formatKz(amountAoa)}</strong>${note ? `<p>${note}</p>` : ''}</div>
-    <ul class="trip-trust"><li>${icon('lock', 14)} Pagamento seguro na página da Wiza</li><li>${icon('message', 14)} Confirmação e bilhete por SMS</li><li>${icon('receipt', 14)} Factura certificada pela AGT</li></ul></div>`;
+    <div class="trip-total"><span>${esc(totalLabel)}</span><strong>${formatKz(amountAoa)}</strong>${note ? `<p>${note}</p>` : ''}</div></div>`;
 }
 
 function segmentsHtml(leg) {
@@ -143,7 +143,6 @@ function renderReview() {
   main.innerHTML = `<div class="panel"><div class="panel-head"><span class="round-icon">${icon('plane', 22)}</span><div><h2>Revê a tua viagem</h2><p>Confirma os voos, as datas e os horários antes de continuar. Os horários são locais de cada aeroporto.</p></div></div>
     ${legCard(q.outbound, 'IDA', q.query.departureDate)}
     ${q.inbound ? legCard(q.inbound, 'VOLTA', q.query.returnDate) : ''}
-    <div class="notice info">${icon('info', 18)}<div>O preço em kwanzas é final, com taxas incluídas, e fica garantido durante 15 minutos.</div></div>
     ${q.payments ? '' : `<div class="notice error">${icon('alert', 18)}<div>Os pagamentos estão temporariamente indisponíveis. Podes rever a viagem e tentar novamente dentro de momentos.</div></div>`}
     <div class="form-actions"><a class="back-link step-back" href="${backUrl()}">${backIcon}<span class="back-text">Escolher outro voo</span></a><button class="primary" id="next" type="button">Continuar ${icon('arrowRight', 16)}</button></div></div>`;
   $('#next').onclick = () => go('contact');
@@ -279,12 +278,80 @@ function renderPassengers() {
 }
 
 // ── Step 4: payment ───────────────────────────────────────────────────────────
+const LOGO = {
+  whatsapp: '<img src="/assets/payments/whatsapp.svg" width="40" height="40" alt="WhatsApp">',
+  express: '<img class="logo-app" src="/assets/payments/multicaixa-express.png" width="40" height="40" alt="Multicaixa Express">',
+  multicaixa: '<img class="logo-word" src="/assets/payments/multicaixa.svg" width="100" height="18" alt="Multicaixa">',
+  visa: '<img class="logo-visa" src="/assets/payments/visa.svg" width="52" height="17" alt="Visa">',
+  mastercard: '<img class="logo-mc" src="/assets/payments/mastercard.svg" width="40" height="25" alt="Mastercard">',
+};
+const whatsappGlyph = '<img class="wa-glyph" src="/assets/payments/whatsapp.svg" width="20" height="20" alt="">';
+
+// The three ways to pay, in the order the DOT team asked for. Cards are shown but not available yet.
+const PAY_OPTIONS = {
+  manual: {
+    title: 'Pagamento manual',
+    text: 'Falas com a equipa DOT no WhatsApp e combinas o pagamento. A mensagem já leva os dados do voo.',
+    tag: 'Atendimento pelo WhatsApp',
+    logos: LOGO.whatsapp,
+    steps: ['Guardamos a tua reserva', 'Abrimos o WhatsApp com os dados do voo', 'Combinas o pagamento com a equipa DOT'],
+    note: 'Vamos abrir o WhatsApp da DOT com a mensagem pronta. Só tens de a enviar.',
+  },
+  wiza: {
+    title: 'Referência bancária e Multicaixa Express',
+    text: 'Pagas na página segura da Wiza: autorizas no telemóvel ou pagas por referência no ATM ou no internet banking.',
+    tag: 'Confirmação automática',
+    logos: `${LOGO.express}${LOGO.multicaixa}`,
+    steps: ['Guardamos a tua reserva', 'Abre a página segura da Wiza', 'Recebes a confirmação por SMS'],
+    note: 'Vai abrir a página de pagamento da Wiza. Mantém esta página aberta até a confirmação aparecer.',
+  },
+};
+
+function payOption(key, available) {
+  const option = PAY_OPTIONS[key];
+  const selected = state.method === key;
+  if (!available) {
+    return `<div class="pay-option is-disabled" aria-disabled="true"><span class="pay-logos">${option.logos}</span>
+      <span class="pay-copy"><strong>${option.title}</strong><small>${option.text}</small><em class="pay-tag muted">Indisponível de momento</em></span></div>`;
+  }
+  return `<label class="pay-option${selected ? ' is-selected' : ''}" data-method="${key}"><input type="radio" name="pay-method" value="${key}" ${selected ? 'checked' : ''}>
+    <span class="pay-logos">${option.logos}</span>
+    <span class="pay-copy"><strong>${option.title}</strong><small>${option.text}</small><em class="pay-tag">${icon('check', 12)} ${option.tag}</em></span>
+    <span class="pay-radio" aria-hidden="true"></span></label>`;
+}
+
+const payButtonHtml = () => (state.method === 'manual'
+  ? `${whatsappGlyph} Continuar no WhatsApp`
+  : `${icon('lock', 16)} Pagar ${formatKz(state.quote.amountAoa)}`);
+
+// Updates the parts that depend on the chosen method, without redrawing the form.
+function syncMethod() {
+  const option = PAY_OPTIONS[state.method];
+  main.querySelectorAll('.pay-option[data-method]').forEach(card => {
+    const on = card.dataset.method === state.method;
+    card.classList.toggle('is-selected', on);
+    card.querySelector('input').checked = on;
+  });
+  $('#pay-steps').innerHTML = option.steps.map((text, index) => `<li><b>${index + 1}</b><span>${text}</span></li>`).join('');
+  const button = $('#pay');
+  button.className = `primary pay-button${state.method === 'manual' ? ' whatsapp-btn' : ''}`;
+  button.innerHTML = payButtonHtml();
+  button.disabled = state.method === 'wiza' && !state.quote.payments;
+  $('#pay-note').innerHTML = `${icon('info', 14)} ${option.note}`;
+}
+
 function renderPayment(notice = '') {
   const q = state.quote;
-  main.innerHTML = `<div class="panel"><div class="panel-head"><span class="round-icon">${icon('wallet', 22)}</span><div><h2>Pagamento em kwanzas</h2><p>Pagas na página segura da Wiza. Escolhes lá o método que preferires.</p></div></div>
+  if (!q.payments && state.method === 'wiza') state.method = 'manual';
+  main.innerHTML = `<div class="panel pay-panel"><div class="panel-head"><span class="round-icon">${icon('wallet', 22)}</span><div><h2>Como queres pagar?</h2><p>O total é o mesmo em todas as formas de pagamento: <b>${formatKz(q.amountAoa)}</b>, com taxas incluídas.</p></div></div>
     ${notice}
-    <div class="pay-methods"><div class="pay-method"><span class="benefit-icon">${icon('phone', 21)}</span><div><strong>Multicaixa Express</strong><small>Autorizas o pagamento no telemóvel, em poucos segundos.</small></div></div>
-      <div class="pay-method"><span class="benefit-icon">${icon('receipt', 21)}</span><div><strong>Referência Multicaixa</strong><small>Pagas no ATM ou no internet banking. A confirmação chega por SMS.</small></div></div></div>
+    <fieldset class="pay-options"><legend class="sr-only">Forma de pagamento</legend>
+      ${payOption('manual', true)}
+      ${payOption('wiza', Boolean(q.payments))}
+      <div class="pay-option is-disabled" aria-disabled="true"><span class="pay-logos">${LOGO.visa}${LOGO.mastercard}</span>
+        <span class="pay-copy"><strong>Visa ou Mastercard</strong><small>Pagamento com cartão de débito ou de crédito.</small><em class="pay-tag muted">Indisponível de momento</em></span></div>
+    </fieldset>
+    <div class="pay-how"><span>Como funciona</span><ol class="pay-steps" id="pay-steps"></ol></div>
     <div class="review-list">
       <div class="review-row"><span>${icon('user', 16)} Contacto</span><div><strong>${esc(state.contact.name)}</strong><small>${esc(formatPhone(state.customer?.phone))} · ${esc(state.contact.email)}</small></div><button class="link-btn" type="button" data-goto="contact">Alterar</button></div>
       <div class="review-row"><span>${icon('users', 16)} Passageiros</span><div>${state.passengers.map(p => `<strong>${p.title === 'MR' ? 'Sr.' : 'Sra.'} ${esc(p.givenNames)} ${esc(p.surname)}</strong>`).join('')}<small>Nomes como no passaporte</small></div><button class="link-btn" type="button" data-goto="passengers">Alterar</button></div></div>
@@ -295,8 +362,8 @@ function renderPayment(notice = '') {
         <label class="form-field"><span>Nome ou empresa na factura</span><input name="invoiceName" maxlength="120" value="${esc(state.invoice.name)}"></label></div>
       <label class="check-row"><input type="checkbox" id="accept" ${state.accept ? 'checked' : ''}><span>Confirmo que os nomes e os passaportes estão exactamente como nos documentos de viagem. Sei que a DOT emite o bilhete depois de confirmar o pagamento e que recebo a confirmação por SMS.</span></label></div>
     <p class="form-error" role="alert" hidden></p>
-    <div class="form-actions">${backButton()}<button class="primary pay-button" id="pay" type="button" ${q.payments ? '' : 'disabled'}>${icon('lock', 16)} Pagar ${formatKz(q.amountAoa)}</button></div>
-    <p class="pay-note">${icon('info', 14)} Vai abrir a página de pagamento da Wiza. Mantém esta página aberta até a confirmação aparecer.</p></div>`;
+    <div class="form-actions">${backButton()}<button class="primary pay-button" id="pay" type="button"></button></div>
+    <p class="pay-note" id="pay-note"></p></div>`;
   main.querySelector('[data-back]').onclick = () => go('passengers');
   main.querySelectorAll('[data-goto]').forEach(button => { button.onclick = () => go(button.dataset.goto); });
   $('#want-invoice').onchange = event => {
@@ -306,7 +373,101 @@ function renderPayment(notice = '') {
   $('#accept').onchange = event => { state.accept = event.target.checked; };
   main.querySelector('[name=nif]').oninput = event => { state.invoice.nif = event.target.value.toUpperCase(); };
   main.querySelector('[name=invoiceName]').oninput = event => { state.invoice.name = event.target.value; };
-  $('#pay').onclick = pay;
+  main.querySelectorAll('input[name=pay-method]').forEach(input => {
+    input.onchange = () => {
+      state.method = input.value;
+      syncMethod();
+    };
+  });
+  syncMethod();
+  $('#pay').onclick = () => (state.method === 'manual' ? payManual() : pay());
+}
+
+// Same checks for both methods before the booking is saved.
+function paymentProblem() {
+  if (!state.accept) return 'Confirma que os dados dos passageiros estão correctos.';
+  if (state.invoice.wanted && (!/^[0-9A-Z]{9,14}$/.test(state.invoice.nif.replace(/[\s.-]/g, '')) || state.invoice.name.trim().length < 2)) {
+    return 'Indica o NIF e o nome que devem constar na factura.';
+  }
+  return null;
+}
+
+const bookingBody = paymentMethod => ({
+  itinerary: state.itinerary,
+  quoteToken: state.quote.quoteToken,
+  contact: state.contact,
+  passengers: state.passengers.map(p => ({ ...p, givenNames: p.givenNames.trim(), surname: p.surname.trim() })),
+  invoice: state.invoice.wanted ? { nif: state.invoice.nif, name: state.invoice.name } : null,
+  accept: true,
+  paymentMethod,
+});
+
+// Errors shared by both methods: session lost, price refreshed, offer expired, passenger data refused.
+async function handleBookingError(error) {
+  if (error.code === 'AUTH_REQUIRED') {
+    state.customer = null;
+    return go('contact');
+  }
+  if (error.code === 'QUOTE_EXPIRED' || error.code === 'NO_RATE') {
+    try {
+      const before = state.quote.amountAoa;
+      await refreshQuote();
+      return renderPayment(`<div class="notice">${icon('refresh', 18)}<div>${state.quote.amountAoa === before ? 'Actualizámos a cotação.' : `O preço foi actualizado e o total passou a <b>${formatKz(state.quote.amountAoa)}</b>.`} Confirma novamente para continuar.</div></div>`);
+    } catch (inner) {
+      return errorBox(inner.message);
+    }
+  }
+  if (error.code === 'OFFER_EXPIRED') return fatal('Os preços expiraram', error.message);
+  if (error.code === 'PASSENGER_INVALID') {
+    go('passengers');
+    return errorBox(error.message);
+  }
+  return errorBox(error.message);
+}
+
+// Manual payment: the booking is saved (the team sees it in the admin) and WhatsApp opens with the trip.
+async function payManual() {
+  const problem = paymentProblem();
+  if (problem) return errorBox(problem);
+  // Opened during the click, so the browser does not block it; it goes to WhatsApp once the booking exists.
+  const tab = window.open('', '_blank');
+  if (tab) {
+    tab.opener = null;
+    tab.document.title = 'WhatsApp · DOT Viagens';
+    tab.document.body.innerHTML = '<p style="font:15px system-ui,sans-serif;padding:32px;color:#555">A abrir o WhatsApp da DOT Viagens…</p>';
+  }
+  const button = $('#pay');
+  button.disabled = true;
+  button.innerHTML = '<span class="spinner"></span> A guardar a reserva…';
+  try {
+    const result = await api('/api/bookings', { method: 'POST', timeout: 60000, body: bookingBody('manual') });
+    const q = state.quote;
+    const link = whatsappLink(bookingMessage({
+      reference: result.reference,
+      origin: q.query.origin,
+      destination: q.query.destination,
+      outbound: q.outbound,
+      inbound: q.inbound,
+      passengers: state.passengers,
+      passengersCount: q.query.passengers,
+      amountAoa: result.amountAoa,
+      contact: { name: state.contact.name, phone: state.customer?.phone },
+    }, city));
+    if (tab) tab.location.replace(link);
+    sessionStorage.removeItem(STORE_KEY);
+    currentRef = result.reference;
+    history.replaceState(null, '', `/compra.html?ref=${encodeURIComponent(result.reference)}`);
+    renderSteps(true);
+    renderStatus({
+      reference: result.reference, status: 'pending_payment', paymentMethod: 'manual', amountAoa: result.amountAoa,
+      payment: { canRetry: Boolean(q.payments) }, whatsappUrl: link, opened: Boolean(tab),
+    });
+  } catch (error) {
+    tab?.close();
+    button.disabled = false;
+    button.innerHTML = payButtonHtml();
+    return handleBookingError(error);
+  }
 }
 
 async function refreshQuote() {
@@ -315,26 +476,13 @@ async function refreshQuote() {
 }
 
 async function pay() {
-  if (!state.accept) return errorBox('Confirma que os dados dos passageiros estão correctos.');
-  if (state.invoice.wanted && (!/^[0-9A-Z]{9,14}$/.test(state.invoice.nif.replace(/[\s.-]/g, '')) || state.invoice.name.trim().length < 2)) {
-    return errorBox('Indica o NIF e o nome que devem constar na factura.');
-  }
+  const problem = paymentProblem();
+  if (problem) return errorBox(problem);
   const button = $('#pay');
   button.disabled = true;
   button.innerHTML = '<span class="spinner"></span> A preparar o pagamento…';
   try {
-    const result = await api('/api/bookings', {
-      method: 'POST',
-      timeout: 60000,
-      body: {
-        itinerary: state.itinerary,
-        quoteToken: state.quote.quoteToken,
-        contact: state.contact,
-        passengers: state.passengers.map(p => ({ ...p, givenNames: p.givenNames.trim(), surname: p.surname.trim() })),
-        invoice: state.invoice.wanted ? { nif: state.invoice.nif, name: state.invoice.name } : null,
-        accept: true,
-      },
-    });
+    const result = await api('/api/bookings', { method: 'POST', timeout: 60000, body: bookingBody('wiza') });
     sessionStorage.removeItem(STORE_KEY);
     currentRef = result.reference;
     history.replaceState(null, '', `/compra.html?ref=${encodeURIComponent(result.reference)}`);
@@ -347,26 +495,8 @@ async function pay() {
     }
   } catch (error) {
     button.disabled = false;
-    button.innerHTML = `${icon('lock', 16)} Pagar ${formatKz(state.quote.amountAoa)}`;
-    if (error.code === 'AUTH_REQUIRED') {
-      state.customer = null;
-      return go('contact');
-    }
-    if (error.code === 'QUOTE_EXPIRED' || error.code === 'NO_RATE') {
-      try {
-        const before = state.quote.amountAoa;
-        await refreshQuote();
-        return renderPayment(`<div class="notice">${icon('refresh', 18)}<div>${state.quote.amountAoa === before ? 'Actualizámos a cotação.' : `O preço foi actualizado e o total passou a <b>${formatKz(state.quote.amountAoa)}</b>.`} Confirma novamente para pagar.</div></div>`);
-      } catch (inner) {
-        return errorBox(inner.message);
-      }
-    }
-    if (error.code === 'OFFER_EXPIRED') return fatal('Os preços expiraram', error.message);
-    if (error.code === 'PASSENGER_INVALID') {
-      go('passengers');
-      return errorBox(error.message);
-    }
-    errorBox(error.message);
+    button.innerHTML = payButtonHtml();
+    return handleBookingError(error);
   }
 }
 
@@ -448,6 +578,20 @@ function renderStatus(booking) {
       <div class="form-actions"><a class="primary" href="/minhas-viagens.html">${icon('ticket', 16)} Ver Minhas viagens</a><a class="back-link step-back" href="/#pesquisa">${backIcon}<span class="back-text">Nova pesquisa</span></a></div></div>`;
     return;
   }
+  if (booking.status === 'pending_payment' && booking.paymentMethod === 'manual') {
+    const link = booking.whatsappUrl || bookingLink(booking, city);
+    main.innerHTML = `<div class="panel status-hero manual-hero"><span class="round-icon wa-icon">${LOGO.whatsapp}</span><h2>Reserva guardada!</h2>${ref}
+      <p>${booking.opened ? 'Abrimos o WhatsApp da DOT noutro separador, com os dados do voo. Envia a mensagem para combinares o pagamento.' : 'Abre o WhatsApp da DOT: a mensagem já leva os dados do voo. Envia-a para combinares o pagamento.'}</p>
+      <div class="form-actions"><a class="primary whatsapp-btn" href="${esc(link)}" target="_blank" rel="noopener">${whatsappGlyph} Abrir o WhatsApp</a></div>
+      <ul class="manual-facts">
+        <li>${icon('wallet', 16)}<span>Total a pagar: <b>${formatKz(booking.amountAoa)}</b>, com taxas incluídas.</span></li>
+        <li>${icon('clock', 16)}<span>A reserva fica à espera do pagamento até 72 horas.</span></li>
+        <li>${icon('message', 16)}<span>Depois do pagamento, emitimos o bilhete e avisamos-te por SMS.</span></li></ul>
+      ${payment.canRetry ? `<button class="link-btn switch-pay" type="button" id="retry">${icon('card', 15)} Prefiro pagar com referência bancária ou Multicaixa Express</button>` : ''}
+      ${nextSteps(0)}</div>`;
+    $('#retry')?.addEventListener('click', retry);
+    return;
+  }
   if (booking.status === 'pending_payment') {
     const atm = payment.atmReference
       ? `<div class="atm-card"><div><small>Entidade</small><strong>${esc(payment.atmEntity || '—')}</strong></div>
@@ -478,7 +622,7 @@ function renderStatus(booking) {
   if (booking.status === 'payment_failed') {
     main.innerHTML = `<div class="panel status-hero"><span class="round-icon error">${icon('x', 32)}</span><h2>O pagamento não foi concluído</h2>${ref}
       <p>${esc(payment.message || 'A Wiza não confirmou o pagamento.')} Nenhum valor foi cobrado por esta tentativa.</p>
-      <div class="form-actions">${payment.canRetry ? `<button class="primary" type="button" id="retry">${icon('refresh', 16)} Tentar novamente</button>` : ''}<a class="link-btn" href="https://wa.me/244931343433" target="_blank" rel="noopener">Falar com a DOT</a></div></div>`;
+      <div class="form-actions">${payment.canRetry ? `<button class="primary" type="button" id="retry">${icon('refresh', 16)} Tentar novamente</button>` : ''}<a class="link-btn" href="${esc(booking.itinerary ? bookingLink(booking, city) : 'https://wa.me/244931343433')}" target="_blank" rel="noopener">Pagar pelo WhatsApp</a></div></div>`;
     $('#retry')?.addEventListener('click', retry);
     return;
   }
@@ -499,6 +643,7 @@ function nextSteps(done) {
 
 async function retry() {
   const button = $('#retry');
+  const label = button?.innerHTML;
   if (button) {
     button.disabled = true;
     button.innerHTML = '<span class="spinner"></span> A preparar…';
@@ -509,7 +654,7 @@ async function retry() {
   } catch (error) {
     if (button) {
       button.disabled = false;
-      button.innerHTML = `${icon('refresh', 16)} Tentar novamente`;
+      button.innerHTML = label;
     }
     main.querySelector('.status-hero p').textContent = error.message;
   }
@@ -553,7 +698,7 @@ async function statusMode(reference) {
     renderBookingFrame(booking);
     renderStatus(booking);
     if (booking.status === 'pending_payment' && booking.payment?.windowOpen) startPolling();
-    else if (booking.status === 'pending_payment') checkNow();
+    else if (booking.status === 'pending_payment' && booking.paymentMethod !== 'manual') checkNow();
   } catch (error) {
     fatal('Reserva não encontrada', error.message, '<a class="primary" href="/minhas-viagens.html">Ir para Minhas viagens</a>');
   }

@@ -13,11 +13,16 @@
     { "source": "/api/:path*", "destination": "/api?__path=:path*" },
     { "source": "/admin", "destination": "/admin.html" },
     { "source": "/minhas-viagens", "destination": "/minhas-viagens.html" },
-    { "source": "/pagar-passagens-em-kwanzas", "destination": "/pagar-passagens-em-kwanzas.html" }
+    { "source": "/blog", "destination": "/blog/index.html" },
+    { "source": "/blog/:slug", "destination": "/blog/:slug.html" }
   ],
   "redirects": [
     { "source": "/home.html", "destination": "/", "permanent": true },
-    { "source": "/pagar-passagens-em-kwanzas.html", "destination": "/pagar-passagens-em-kwanzas", "permanent": true }
+    { "source": "/blog/index", "destination": "/blog", "permanent": true },
+    { "source": "/blog/index.html", "destination": "/blog", "permanent": true },
+    { "source": "/blog/:slug.html", "destination": "/blog/:slug", "permanent": true },
+    { "source": "/pagar-passagens-em-kwanzas", "destination": "/blog/como-pagar-passagens-aereas-em-kwanzas", "permanent": true },
+    { "source": "/pagar-passagens-em-kwanzas.html", "destination": "/blog/como-pagar-passagens-aereas-em-kwanzas", "permanent": true }
   ],
   "headers": [
     {

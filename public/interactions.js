@@ -21,9 +21,8 @@ for(const id of ['origin','destination']){const select=$('#'+id);select.hidden=t
 }
 function syncCities(){for(const id of ['origin','destination']){const a=airports.find(a=>a.code===$('#'+id).value);cityButtons[id].innerHTML=`<span>${a?a.city:'Escolhe o teu destino'}</span>${icon('chevron',13)}`;cityButtons[id].setAttribute('aria-label',`${id==='origin'?'Origem':'Destino'}: ${a?a.city:'Escolhe o teu destino'}`);const small=$('#'+id).closest('.field').querySelector('small');small.textContent=a?`${a.code} · ${esc(a.name)}`:'Cidade ou aeroporto';}$('#form-error').hidden=true}syncCities();
 $('#swap').addEventListener('click',()=>{syncCities();$('#swap').classList.remove('swapping');void $('#swap').offsetWidth;$('#swap').classList.add('swapping');warmCalendar()});document.querySelectorAll('.destination-card').forEach(b=>b.addEventListener('click',()=>{syncCities();warmCalendar();$('#departure-trigger').focus({preventScroll:true})}));
-// Route shortcuts ("Luanda → Lisboa") and links with ?destino=LIS fill in the search form.
-function chooseDestination(code,scroll=true){if(!airports.some(a=>a.code===code))return;if($('#origin').value===code)$('#origin').value='NBJ';$('#destination').value=code;syncCities();warmCalendar();if(scroll)$('#pesquisa').scrollIntoView({behavior:'smooth',block:'center'});$('#departure-trigger').focus({preventScroll:true})}
-document.querySelectorAll('[data-route]').forEach(b=>b.addEventListener('click',()=>chooseDestination(b.dataset.route)));
+// Links with ?destino=LIS (blog articles, campaigns) fill in the destination of the search form.
+function chooseDestination(code){if(!airports.some(a=>a.code===code))return;if($('#origin').value===code)$('#origin').value='NBJ';$('#destination').value=code;syncCities();warmCalendar();$('#departure-trigger').focus({preventScroll:true})}
 const dateButtons={};const dateFmt=new Intl.DateTimeFormat('pt-PT',{day:'2-digit',month:'short'});const parse=s=>new Date(s+'T12:00:00');
 for(const id of ['departure','return']){const input=$('#'+id);input.hidden=true;input.required=false;const b=document.createElement('button');b.type='button';b.id=id+'-trigger';b.className='field-trigger date-trigger';b.setAttribute('aria-haspopup','dialog');b.setAttribute('aria-expanded','false');input.after(b);dateButtons[id]=b;input.addEventListener('change',syncDates);b.onclick=()=>openDate(id,b);}
 const maxISO=new Date(Date.now()+330*86400000).toISOString().slice(0,10);
@@ -48,4 +47,4 @@ function warmCalendar(){clearTimeout(warmTimer);warmTimer=setTimeout(()=>{const 
 const warmReturn=()=>{const query=homePriceQuery('return'),month=$('#return').value.slice(0,7);if(query&&month&&isReturnTrip())prefetchMonth(query,month)};
 for(const id of ['origin','destination'])$('#'+id).addEventListener('change',warmCalendar);
 for(const type of ['pointerenter','focus']){dateButtons.departure.addEventListener(type,warmCalendar);dateButtons.return.addEventListener(type,warmReturn)}
-{const wanted=(new URLSearchParams(location.search).get('destino')||'').toUpperCase();if(/^[A-Z]{3}$/.test(wanted))chooseDestination(wanted,false)}
+{const wanted=(new URLSearchParams(location.search).get('destino')||'').toUpperCase();if(/^[A-Z]{3}$/.test(wanted))chooseDestination(wanted)}
