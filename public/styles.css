@@ -112,3 +112,11 @@ html{-webkit-text-size-adjust:100%;text-size-adjust:100%;touch-action:manipulati
 @media (pointer:coarse),(max-width:760px){
   input:not([type=checkbox]):not([type=radio]):not([type=range]):not(.otp-input),select,textarea{font-size:16px!important}
 }
+/* Floating WhatsApp button on every public page. Pickers, calendars and dialogs open in the top layer, above it. */
+.wa-float{position:fixed;right:22px;bottom:22px;z-index:60;width:58px;height:58px;border-radius:50%;display:grid;place-items:center;background:#25d366;box-shadow:0 10px 26px #0f5c2a40,0 2px 6px #0f5c2a26;transition:transform .2s var(--ease),box-shadow .2s,opacity .2s}
+.wa-float img{display:block;width:31px;height:31px}
+.wa-float:hover{transform:translateY(-2px);box-shadow:0 14px 32px #0f5c2a4d,0 3px 8px #0f5c2a2e}
+.wa-float:focus-visible{outline:3px solid var(--orange);outline-offset:3px}
+/* Phones: smaller, and out of the way while the customer types (the keyboard pushes it over the fields). */
+@media(max-width:760px){.wa-float{right:16px;bottom:16px;width:54px;height:54px}.wa-float img{width:29px;height:29px}body:has(input:focus,select:focus,textarea:focus) .wa-float{opacity:0;pointer-events:none}.footer-bottom{padding-right:70px}}
+@media print{.wa-float{display:none}}

@@ -647,6 +647,16 @@ o rodapé da home (footer.site-footer). Botão de voltar: pílula branca com a
 seta num círculo laranja claro ("Nova pesquisa", "Voltar aos resultados",
 "Minhas viagens", "Voltar"). Os resultados e a compra não mostram a moeda:
 o site é todo em kwanzas. Não há textos de pré-lançamento.
+Botão flutuante do WhatsApp: círculo verde (#25d366) no canto inferior
+direito de todas as páginas públicas e do blog (não no painel), com o
+ícone branco assets/whatsapp-white.svg. Abre wa.me/244931343433 noutro
+separador com a mensagem "Olá, DOT Viagens! Preciso de ajuda com uma
+viagem.". É HTML simples (funciona antes de o JS carregar), escrito em
+home.html, resultados.html, compra.html, minhas-viagens.html e no rodapé do
+blog (scripts/build-blog.mjs); estilo .wa-float no fim de styles.css. No
+telemóvel é um pouco menor e esconde-se enquanto o cliente escreve num
+campo, para não tapar o formulário. Os seleccionadores de aeroportos, os
+calendários e as janelas abrem por cima dele.
 Fundo das páginas interiores: creme #faf9f6.
 Minhas viagens usa o cabeçalho, a barra de anúncio e o rodapé da home, com
 uma lista simples de cartões e os detalhes num painel (secção 11).
