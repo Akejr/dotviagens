@@ -5,7 +5,7 @@
 import { mkdirSync, writeFileSync, readdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { articles, blog } from '../content/blog/articles.mjs';
+import { articles, blog, SHARE_IMAGE } from '../content/blog/articles.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const OUT = join(ROOT, 'public', 'blog');
@@ -99,7 +99,7 @@ function articlePage(a) {
   if (a.faq.length) graph.push({ '@type': 'FAQPage', mainEntity: a.faq.map(f => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })) });
   const preload = a.cover.art ? '' : `\n<link rel="preload" as="image" href="${a.cover.src}"${a.cover.srcset ? ` imagesrcset="${a.cover.srcset}" imagesizes="(max-width: 760px) 100vw, 1120px"` : ''} fetchpriority="high">`;
   return `${head({
-    title: a.seoTitle, description: a.description, path: a.url, ogType: 'article', image: a.og, imageAlt: a.cover.alt, preload,
+    title: a.seoTitle, description: a.description, path: a.url, ogType: 'article', image: a.og, imageAlt: a.ogImage?.alt || a.cover.alt, preload,
     extra: `\n<meta property="article:published_time" content="${a.published}"><meta property="article:modified_time" content="${a.modified || a.published}"><meta property="article:section" content="${esc(a.category)}">`,
   })}
 ${ld({ '@context': 'https://schema.org', '@graph': graph })}
@@ -132,7 +132,7 @@ function indexPage() {
       { '@type': 'ListItem', position: 2, name: 'Blog', item: `${SITE}/blog` },
     ] },
   ];
-  return `${head({ title: blog.seoTitle, description: blog.description, path: '/blog', ogType: 'website', image: { src: '/assets/og-dot-viagens.jpg', width: 1200, height: 630 }, imageAlt: 'DOT Viagens: passagens aéreas pagas em kwanzas' })}
+  return `${head({ title: blog.seoTitle, description: blog.description, path: '/blog', ogType: 'website', image: SHARE_IMAGE, imageAlt: SHARE_IMAGE.alt })}
 ${ld({ '@context': 'https://schema.org', '@graph': graph })}
 </head>${top}
 <main>
@@ -155,7 +155,7 @@ function sitemap() {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
 ${[
-    url('/', 'daily', '1.0', ['/assets/og-dot-viagens.jpg', '/assets/hero/angola-mountains.jpg']),
+    url('/', 'daily', '1.0', [SHARE_IMAGE.src, '/assets/hero/angola-mountains.jpg']),
     url('/blog', 'weekly', '0.8'),
     ...articles.map(a => url(a.url, 'monthly', '0.7', [a.og.src])),
   ].join('\n')}

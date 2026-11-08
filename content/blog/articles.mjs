@@ -2,6 +2,10 @@
 // The build writes public/blog/*.html and public/sitemap.xml and refuses dashes (— or –) in the text.
 // faq: shown on the page and copied to the FAQPage data, so both always match.
 
+// Share image of the site (the home banner, 1200x630): home, blog index and articles that use it.
+// The home sets the same file in public/home.html.
+export const SHARE_IMAGE = { src: '/assets/og-banner-passaporte.jpg', width: 1200, height: 630, alt: 'O destino muda. A moeda continua a tua. Mão com passaporte angolano e bilhete de embarque DOT Viagens.' };
+
 export const articles = [
   {
     slug: 'passagens-aereas-baratas-em-angola',
@@ -54,7 +58,7 @@ export const articles = [
     excerpt: 'Multicaixa Express, referência bancária ou pagamento manual pelo WhatsApp. Sem cartão internacional e com o preço final à vista.',
     lead: 'Na DOT Viagens compras passagens para o mundo inteiro e pagas em kwanzas, sem cartão internacional. Vê como funciona cada forma de pagamento e o que acontece depois.',
     cover: { art: true, src: '/assets/boarding-tickets-900.png', webp: '/assets/boarding-tickets-900.webp', width: 900, height: 460, alt: 'Bilhetes de embarque DOT Viagens de Angola para o mundo' },
-    ogImage: { src: '/assets/og-dot-viagens.jpg', width: 1200, height: 630 },
+    ogImage: SHARE_IMAGE,
     cta: { title: 'Pronto para a próxima viagem?', text: 'Compara voos de Luanda para o mundo e paga em kwanzas.', label: 'Pesquisar voos', href: '/#pesquisa' },
     body: `
 <h2>Porque pagar a passagem em kwanzas</h2>
