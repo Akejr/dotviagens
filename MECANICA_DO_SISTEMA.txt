@@ -1,21 +1,45 @@
 DOT VIAGENS — DOCUMENTAÇÃO DO SISTEMA
-Revisão: 6 de Novembro de 2026 — datas automáticas, regresso e identidade visual
+Revisão: 7 de Novembro de 2026 (3.ª) — SEO (sitemap, robots, dados
+estruturados, guia "Pagar passagens em kwanzas"), favicon, publicação na
+Vercel, calendário mais rápido (cache partilhado), novo visual da compra,
+logótipos de duas companhias, rodapé em todas as páginas, botão de voltar,
+fim dos textos de pré-lançamento.
+2.ª revisão: taxa DOT de 11%, calendário com preços, painel em tempo real.
+1.ª revisão: compra em kwanzas, acesso por SMS, pagamentos, facturação e painel.
 
 1. PRODUTO E LIMITES
-Pesquisa real via SerpApi Google Flights, preços em BRL. O cliente escolhe
-ida, depois volta compatível, e vê um resumo com o total do itinerário.
-Só ida salta directamente para o resumo. Esta aplicação pesquisa e compara;
-não cobra, não reserva, não emite bilhetes e não garante disponibilidade.
-Suporta 1–4 adultos em económica. Crianças, outras classes, múltiplas cidades,
-pagamentos, autenticação de clientes, reservas e emissão continuam por integrar.
+Pesquisa real via SerpApi Google Flights. O fornecedor devolve preços em BRL;
+o site mostra kwanzas: preço final = preço em BRL x câmbio do dia (arredondado
+para cima ao kwanza) + taxa DOT de 11% sobre esse valor (também arredondada
+para cima). O cliente vê só o preço final, sem a taxa à parte e sem o câmbio.
+O câmbio é definido no painel /admin; a taxa é MARKUP_BP em server/rates.mjs.
+O cliente escolhe ida, depois volta compatível, revê o resumo e compra:
+contacto + verificação do telemóvel por SMS (Nsangu), dados dos passageiros
+como numa companhia aérea, pagamento Wiza (Multicaixa Express ou Referência),
+factura-recibo Vero certificada pela AGT. Só ida salta directamente para o resumo.
+A emissão do bilhete é feita pela equipa DOT: a SerpApi pesquisa, não reserva
+nem emite. Depois do pagamento, a equipa emite na companhia ou no consolidador
+e regista o PNR no painel; o cliente recebe SMS e vê o bilhete em Minhas viagens.
+Suporta 1–4 adultos (12 anos ou mais na data da viagem) em económica.
+Crianças, bebés, outras classes, múltiplas cidades, bagagem, reembolso pelo
+gateway e emissão automática continuam por integrar.
 O acesso ao site publicado mantém a configuração privada do proprietário.
 
 2. ARQUITECTURA
-Frontend HTML/CSS/JS em public/. Vinext com Worker Cloudflare.
-app/page.tsx redirecciona para /home.html. worker/index.ts intercepta
-POST /api/flights/search e chama server/flights.mjs, preservando o restante
-runtime Sites. A chave SERPAPI_KEY existe apenas no ambiente do servidor.
-Nunca colocar a chave no JS público, ficheiro versionado ou ZIP.
+Frontend HTML/CSS/JS em public/ (sem bundler). Duas formas de correr a mesma
+API (server/router.mjs), sem alterar o código das rotas:
+- Desenvolvimento local: Vinext com Worker Cloudflare. app/page.tsx
+  redirecciona para /home.html; app/admin, app/minhas-viagens e
+  app/pagar-passagens-em-kwanzas redireccionam para os .html respectivos.
+  worker/index.ts envia TODOS os pedidos /api/* para server/router.mjs e
+  preserva o restante runtime Sites. O handler scheduled() executa a
+  verificação de pagamentos quando existe um Cron Trigger (secção 10).
+- Produção na Vercel (secção 15A): site estático (public/ copiado para
+  dist-vercel/) + uma única função, api/index.mjs, que recebe /api/*.
+Base de dados Supabase (projecto ycbmqytyfdkrpxvjcblk), acedida só pelo Worker
+através do PostgREST com a chave secreta. O browser nunca fala com o Supabase.
+Todos os segredos existem apenas no ambiente do servidor (secção 15).
+Nunca colocar chaves no JS público, ficheiro versionado ou ZIP.
 .openai/hosting.json mantém identidade/configuração da publicação.
 
 3. AEROPORTOS E PAÍSES
@@ -35,15 +59,33 @@ https://ourairports.com/data/
 https://davidmegginson.github.io/ourairports-data/airports.csv
 https://davidmegginson.github.io/ourairports-data/countries.csv
 A base não promete todos os aeroportos existentes ou todos os destinos vendidos.
+public/countries.js: nacionalidades e países emissores (ISO 3166-1) em pt-AO,
+Angola primeiro, usados no formulário de passageiros.
 
 4. PESQUISA E ESTADO
 home.html contém formulário e branding, app.js valida e navega para
 /resultados.html?origin=NBJ&destination=LIS&departureDate=YYYY-MM-DD
 &returnDate=YYYY-MM-DD&passengers=1&cabin=economy
 Omitir returnDate para só ida. interactions.js contém dropdown pesquisável,
-calendários e selecção de adultos; carousel.js gere o slideshow.
+calendários (price-calendar.js, ver secção 8A) e selecção de adultos;
+carousel.js gere o slideshow. /?destino=LIS (ou /home.html?destino=LIS)
+preenche o destino; os botões de rota da secção "Passagens aéreas baratas"
+(data-route) fazem o mesmo e levam ao formulário. Na ida e volta, escolher a ida mantém a duração
+da viagem (a volta acompanha) e abre logo o calendário da volta.
 results.js gere estados outbound, return e summary, datas, filtros e paginação.
-O cabeçalho persistente inclui navegação para voos, destinos e funcionamento.
+Ao abrir, results.js lê GET /api/rate {rate, markupBp}: com câmbio mostra o
+preço final em Kz (câmbio + taxa DOT); sem câmbio mostra BRL com a taxa, avisa
+e desactiva a compra. O botão "Data de ida/volta" abre o calendário com preços.
+Cada pesquisa da página de resultados envia sid (sessão do browser) e jid
+(uma pesquisa: sessionStorage dot-jid:<rota|datas|adultos>, válido 30 minutos)
+para o painel agrupar as datas vizinhas, idas e voltas numa só linha.
+No resumo, "Comprar esta viagem" grava as ofertas assinadas em sessionStorage
+(chave dot-checkout-v1) e abre /compra.html.
+Cada pedido de pesquisa leva kind (view, prefetch, return, return-prefetch) e
+sid (id de sessão do separador) apenas para o painel de pesquisas.
+Cache do browser: chave dot-flight-cache-v3. Entradas expiradas continuam
+visíveis e seleccionáveis; só a decisão de voltar a consultar usa a validade.
+O cabeçalho persistente inclui voos, destinos, funcionamento e Minhas viagens.
 
 5. IDA E VOLTA — PONTO CRÍTICO
 A pesquisa inicial envia type=1, departure_id, arrival_id, outbound_date,
@@ -64,14 +106,13 @@ original. A etapa de volta tem cartões de datas e calendário próprios.
 Alterar a data de volta mantém a ida seleccionada e invalida a volta anterior.
 resolveReturns consulta as idas para a nova combinação de datas, encontra os
 mesmos segmentos (número de voo, origem, destino e partida), obtém um token
-actualizado e consulta os regressos. Se a ida exacta não está disponível,
-mostra ausência de opções; nunca troca silenciosamente o voo de ida.
+actualizado e consulta os regressos. Devolve também essa ida (assinada), que
+é a que a compra usa. Se a ida exacta não está disponível, mostra ausência de
+opções; nunca troca silenciosamente o voo de ida.
 A data mínima de volta é o dia de chegada do último segmento da ida.
 Guardar itinerário descarrega TXT local; não cria reserva nem bilhete.
-Refresh reinicia a etapa de ida, reaproveitando cache válida; não persiste
-uma reserva ou promete continuidade de tokens expirados.
-bookingToken é preservado para futura consulta de opções de reserva; a
-integração actual NÃO chama booking_options nem conduz ao checkout.
+bookingToken é guardado na reserva para futura consulta de booking_options;
+a integração actual NÃO chama booking_options.
 Documentação: https://serpapi.com/google-flights-api
 
 6. ECONOMIA DE REQUISIÇÕES
@@ -80,118 +121,420 @@ Documentação: https://serpapi.com/google-flights-api
   automaticamente, com dois trabalhadores em paralelo por janela.
 - Os cinco cartões mostram A consultar durante o carregamento e depois o menor
   preço encontrado. Não é necessário clicar para ver preços de outros dias.
-- O calendário permite saltar para outra data, tanto na ida como na volta.
 - Na volta, cada nova data pode exigir duas chamadas sem cache: obter um token
-  actualizado da mesma ida e consultar os regressos compatíveis. O resultado
-  fica em cache também pela identidade dos segmentos da ida seleccionada.
+  actualizado da mesma ida e consultar os regressos compatíveis.
 - A navegação interrompe a fila antiga; pedidos já iniciados podem terminar.
-  Não há quota global persistente nem cancelamento de pedidos já enviados.
 - Não inventa tarifas para datas por consultar, erros ou ausência de voos.
-- Cartões consultados mostram mínimo de TODAS as opções recebidas após filtros,
-  não apenas as oito opções visíveis. Não é garantia de mínimo global do mercado.
 - Mais baratos, mais rápidos, filtros e Ver mais são operações locais.
-- Ver mais revela oito opções por vez, só aparece havendo opções restantes.
-  A API não fornece paginação para além de best_flights/other_flights; não se
-  inventam páginas remotas. Reordenar/filtrar actua sobre todo o conjunto.
 - Browser: cache por consulta canónica, TTL 10 minutos, sessionStorage e memória,
   máximo 35 entradas; pedidos idênticos em curso partilham a mesma Promise.
 - Servidor: cache em memória por consulta canónica, TTL 10 minutos, máximo 100
   entradas, deduplicação de consultas concorrentes no MESMO isolate.
-- Cache não é partilhado entre regiões/isolate e perde-se em deploy/reinício.
-  Para escala pública, adicionar cache distribuído e quotas por utilizador.
 - Não enviamos no_cache=true; mantemos o cache do próprio fornecedor activo.
-- Escolher ida consulta apenas as voltas compatíveis. Voltar à mesma escolha
-  dentro do TTL usa cache. Sem chamadas de booking_options automáticas.
-- Cache inclui rota, datas, adultos, classe, filtro backend e departureToken.
-- Protecção de geração impede respostas antigas de substituir uma nova etapa.
+- Cotação e compra NÃO fazem novas pesquisas pagas: usam as ofertas assinadas.
+- Ordem de grandeza sem cache: ida e volta completa ~14 pesquisas; só ida ~5.
 
 7. FILTROS
 Companhias derivadas EXCLUSIVAMENTE dos voos da data e etapa actual.
 Cada companhia operadora nos segmentos aparece uma vez, com contagem de
 itinerários. Combinação entre companhias seleccionadas é OR (qualquer uma).
-Directos restringe a stops=0 localmente; não gasta requisição. Uma oferta com
-várias companhias é incluída se alguma operadora corresponde ao filtro.
+Directos restringe a stops=0 localmente; não gasta requisição.
 Mudar data/etapa limpa selecção de companhias. Activar directos recalcula a
 lista de companhias e limpa selecções. Não aparecem companhias de outras datas.
-O filtro aplica-se à etapa actual. Ao escolher a volta, a ida já seleccionada
-permanece fixa; o resumo apresenta todos os segmentos de ambos os percursos.
 
-8. CONTRATO HTTP E ERROS
-POST /api/flights/search, Content-Type application/json:
-{origin, destination, departureDate, returnDate|null, passengers, cabin:'economy',
- stops:0|1, departureToken?:string}
-Datas ISO reais, entre hoje e 330 dias, volta >= ida, origem != destino,
-códigos IATA existentes na base. Tokens validados, limite 12.000 caracteres.
-Corpo máximo 16.000 caracteres. Só POST; valida Origin quando presente.
-Resposta: {offers,currency:'BRL',passengers,roundTrip,searchedAt,cached,demo:false}.
-Oferta: id, airline, logo, amount, currency, duration, stops, cabin,
-departureToken, bookingToken, segments[], layovers[].
-Segmentos: airline, logo, number, from, to, departure, arrival, duration.
-Horários são locais dos aeroportos, não converter cegamente para o fuso do browser.
-Deduplicação por segmentos + valor, juntando best_flights e other_flights.
-Timeout servidor 45s; browser 55s. Falhas exibem mensagens portuguesas seguras
-com botão de nova tentativa. Resultados vazios não são erros simulados.
-Não logar URL SerpApi, pois contém api_key. Não devolver resposta crua com segredo.
-Logótipos limitados a HTTPS www.gstatic.com/flights/airline_logos/ e fallback.
-Textos externos são escapados antes de inserir no HTML.
-O snapshot e códigos são dados locais públicos, não credenciais.
+8. PREÇOS ASSINADOS, CÂMBIO E TAXA DOT
+Cada oferta devolvida por /api/flights/search leva sig = HMAC-SHA256(OFFER_SECRET,
+[consulta canónica, dados da oferta, searchedAt]). A resposta inclui query.
+POST /api/checkout/quote verifica as assinaturas, a idade (máximo 30 minutos),
+o par ida/volta (o token da volta tem de ser o departure_token da ida escolhida)
+e calcula o preço no servidor com o câmbio mais recente. Devolve só o total
+(amountAoa) e um quoteToken v2 assinado, válido 15 minutos, que guarda
+baseAoa, feeAoa, amountAoa e markupBp. Um quoteToken antigo (v1, sem taxa)
+é recusado com 409 QUOTE_EXPIRED e a página pede uma cotação nova.
+O browser nunca define preços.
+Câmbio: tabela exchange_rates, vale o registo mais recente. GET /api/rate é
+público (cache 60 s) e devolve rate e markupBp. Contas em inteiros:
+valor convertido = ceil(cêntimos BRL x câmbio / 100);
+taxa DOT = ceil(valor convertido x 1100 / 10000); total = convertido + taxa.
+Exemplo: R$ 10.421 x 225 = 2.344.725 Kz + 257.920 Kz = 2.602.645 Kz.
+O total é o valor cobrado na Wiza e a única linha da factura Vero. A reserva
+guarda base_aoa, fee_aoa e markup_bp para o painel (receita e taxa DOT).
+O browser usa as mesmas contas (flight-model.js: withMarkup, totalKz, totalBrl).
+Sem câmbio definido, a compra devolve 503 NO_RATE.
+Mínimo de 100 Kz por cobrança (regra da Wiza).
 
-9. MAPA DE FICHEIROS
+8A. CALENDÁRIO COM PREÇOS
+Os calendários da home e dos resultados mostram por baixo de cada dia o preço
+indicativo mais baixo, em Kz compactos ("953 mil", "2,6 M"), com câmbio e taxa
+DOT incluídos; os dias mais baratos do mês ficam a verde.
+POST /api/flights/calendar {origin, destination, passengers 1-4,
+type oneway|return, month YYYY-MM, tripDays? 1-60, fixedOutbound?}
+(server/calendar.mjs) chama a SerpApi Google Flights Calendar API
+(engine=google_flights_calendar): um pedido por mês visto.
+- Só ida: type=2, preço por dia de partida.
+- Ida (ida e volta): type=1 com round_trip_days = duração actual da viagem;
+  o valor é o total de ida e volta de N dias a partir desse dia.
+- Volta: type=1 com fixed_outbound_date=true e date_range_start = ida
+  escolhida; o valor de cada dia é o TOTAL da viagem com essa volta.
+Limites: hoje até hoje+330 dias; volta até 62 dias depois da ida; meses fora do
+intervalo devolvem [] sem gastar pesquisas.
+Velocidade (três níveis de cache, do mais rápido para o mais lento):
+1. Browser: localStorage dot-calendar-v2, 3 horas (sobrevive a fechar o
+   separador). As chaves antigas dot-calendar-v1 são apagadas.
+2. Servidor: memória da instância, 30 minutos, máximo 300 meses.
+3. Cache partilhado na base de dados: tabela calendar_cache, 6 horas. Um mês
+   consultado por QUALQUER visitante abre logo para todos os outros. A escrita
+   faz-se depois de responder (waitUntil). Se o Supabase falhar, segue para a
+   SerpApi (que ainda tem a sua cache gratuita de 1 h).
+Chave: origem|destino|adultos|tipo|início|fim|ida fixa|duração.
+Pré-carregamento (o calendário já tem os preços quando abre):
+- home: ao escolher o destino (ou a origem), 250 ms depois; ao passar o rato
+  ou focar os campos de data; ao passar o rato na seta do mês seguinte;
+- resultados: ao passar o rato ou focar o botão "Data de ida/volta".
+Cada pré-carregamento de um mês novo gasta 1 pesquisa SerpApi (só a primeira
+vez em 6 horas para essa rota e mês). Não há pré-aquecimento por cron.
+Só as chamadas reais à SerpApi ficam em search_logs (kind 'calendar'); não
+entram no feed de pesquisas, só na contagem de consultas.
+Os preços são indicativos (Google Flights Calendar): o valor final é o da
+pesquisa e da cotação.
+
+9. ACESSO POR TELEMÓVEL (OTP) E SESSÕES
+Telefone angolano: 9 dígitos começados por 9, guardado sem +244.
+POST /api/auth/otp/request {phone, purpose: login|checkout|admin}
+POST /api/auth/otp/verify {phone, code, purpose, name?, email?}
+GET /api/auth/me · POST /api/auth/logout
+Código de 6 dígitos, válido 5 minutos, 5 tentativas, reenvio após 60 s,
+máximo 5 por número e 20 por IP por hora, e 300 por hora no site inteiro
+(OTP_HOURLY_LIMIT). Guarda-se apenas o HMAC do código (AUTH_SECRET).
+A verificação é atómica na função SQL verify_otp.
+Sessão: cookie dot_session HttpOnly, SameSite=Lax (Secure em HTTPS); 30 dias
+para clientes e 12 horas para o painel. Guarda-se o SHA-256 do token.
+Admin: só números com role admin ou listados em ADMIN_PHONES recebem SMS;
+números desconhecidos recebem a mesma resposta, sem SMS.
+SMS (Nsangu, https://api.nsangu.com/docs/): cada envio leva Idempotency-Key
+única (otp-<id>, booking-<ref>-paid, booking-<ref>-ticketed-<PNR>,
+booking-<ref>-cancelled); repetições de rede usam a mesma chave.
+Códigos em categoria OTP; avisos em TRANSACTIONAL. Textos em GSM-7 (sem acentos
+que obriguem a UCS-2) para caber num SMS. Rede Movicel (91x, 99x): remetente
+numérico 46554; o formulário avisa o cliente. Cada SMS fica em sms_messages
+(sem o texto das OTP); o estado consulta-se no painel.
+
+10. COMPRA E PAGAMENTO (WIZA) E FACTURA (VERO)
+/compra.html: Revisão → Contacto (OTP) → Passageiros → Pagamento.
+Passageiros: tratamento, nome(s) próprio(s) e apelido(s) como no passaporte,
+data de nascimento, nacionalidade, número, país emissor e validade do passaporte
+(tem de ser válido depois da última data da viagem; aviso se menos de 6 meses).
+Factura com NIF opcional; sem NIF, Consumidor Final.
+Fluxo no servidor (server/bookings.mjs), segundo o guia WizaPay + Vero:
+1. A reserva é gravada (pending_payment) ANTES de falar com a Wiza.
+   Referência DOT-AAMMDD-00001. Máximo 10 reservas por conta por hora.
+2. Token OAuth da Wiza em cache (~1 h). POST /v1/hosts/payments com
+   redirect manual; o 303 traz Location com id e nonce. reference_id = referência
+   (tentativas seguintes: -2, -3…), callback_url com ?k=WIPAY_WEBHOOK_SECRET.
+3. O checkout alojado abre num iframe sem sandbox (ou noutra janela).
+4. Só o GET /v1/hosts/payments/{id} confirma (janela ~5 minutos). A página
+   consulta /api/bookings/<ref>/check a cada 3 s durante 6 minutos.
+5. Callback: dentro da janela, decide o GET; fora da janela (Referência paga
+   mais tarde) exige segredo (comparação em tempo constante) + UUID de uma
+   cobrança desta reserva (actual ou anterior) + valor. O resto fica para
+   revisão (needs_review). Responde sempre 200.
+6. Confirmação idempotente: só o pedido que muda o estado entrega. Um segundo
+   pagamento aceite noutra cobrança fica marcado como possível duplicado.
+7. Depois de pago: SMS de confirmação e factura Vero (customers/ensure, FR,
+   valores em cêntimos, sem taxRate, M04 com NIF, idempotencyKey = referência,
+   PDF pela rota pública, estado AGT por consulta 1,5 s → 3 s → 5 s).
+   Falha do Vero não cancela a venda: fica em vero_error e reemite-se no painel.
+Novas tentativas: até 5 por reserva; bloqueadas enquanto houver uma referência
+ATM por pagar. Reservas sem pagamento passam a expired após 72 horas.
+Verificação sem o cliente na página: POST /api/internal/sweep com cabeçalho
+x-cron-secret, GET com Authorization: Bearer CRON_SECRET (Vercel Cron Jobs),
+botão no painel, ou Cron Trigger do Worker (scheduled).
+Visual da compra (checkout.css): cabeçalho com a rota e selos de confiança,
+barra de progresso (no telemóvel só o passo actual mostra o nome), campos com
+a etiqueta dentro, cartão de embarque da viagem ao lado (ida, volta, total e
+garantias), itinerário em linha do tempo, métodos de pagamento em mosaicos,
+revisão com "Alterar", próximos passos depois de pagar e cartão ATM
+(entidade, referência com botão Copiar, valor). Na página de estado
+(compra.html?ref=…) o título mostra as cidades quando o catálogo carrega.
+Endpoints: POST /api/checkout/quote · POST /api/bookings · GET /api/bookings ·
+GET /api/bookings/<ref> · POST /api/bookings/<ref>/check · POST /api/bookings/<ref>/pay ·
+POST /api/payments/wiza/callback · POST /api/internal/sweep.
+
+11. MINHAS VIAGENS
+/minhas-viagens.html (botão Minhas viagens do cabeçalho). Entrada com o número
+de telemóvel + código SMS, sem palavra-passe. Usa o cabeçalho e o rodapé da
+home, um hero com a arte de bilhete e cada reserva como cartão de embarque:
+códigos dos aeroportos, datas, companhia, reserva DOT e, no canhoto, o código
+da reserva (PNR), o total e o botão para concluir o pagamento. Agrupa em
+"Próximas viagens" e "Anteriores e canceladas". Os detalhes mostram pagamento
+(incluindo entidade e referência ATM), itinerário, passageiros (passaporte
+mascarado), factura (PDF) e bilhete (PNR e números).
+
+12. PAINEL DE ADMINISTRAÇÃO (/admin)
+Entrada por OTP para role admin. O primeiro administrador vem de ADMIN_PHONES;
+outros são promovidos em Utilizadores.
+Tempo real: a cada 3 s o painel consulta GET /api/admin/live (função
+admin_live_state: contadores e última alteração por tema) e recarrega só o
+ecrã cujos dados mudaram, sem perder linhas abertas. Com uma janela de acção
+aberta ou um campo em edição, a actualização espera. Avisos no canto: novo
+pagamento confirmado, nova reserva, pagamento para rever. Contador de bilhetes
+por emitir no menu e no título do separador; ponto verde em Pesquisas quando
+há pesquisas novas. O indicador "Ao vivo · há N s" pausa e retoma.
+Não usa Supabase Realtime: o browser continua sem chaves da base de dados.
+Secções:
+- Visão geral: banner com a receita e a taxa DOT do dia, pesquisas,
+  visitantes, compras, bilhetes por emitir, pendentes, para rever, clientes,
+  consultas à SerpApi, pesquisas recentes, câmbio e integrações.
+- Pesquisas: feed ao vivo com UMA linha por pesquisa de cliente (jornada):
+  rota, datas, etapas (datas de ida e de volta comparadas, ida/volta escolhidas),
+  menor preço visto pelo cliente e quem pesquisou. Ao abrir a linha vêem-se as
+  consultas (GET /api/admin/searches/calls?key=…): etapa, datas, resultado,
+  cache ou SerpApi e tempo. Também rotas mais pesquisadas e pesquisas por dia.
+  Agrupamento: journey_key = jid da página de resultados ou, sem ele,
+  sessão|origem|destino|adultos. Guardadas 7 dias; pg_cron apaga as antigas de
+  hora a hora. Não se guarda IP: visitante = hash diário de IP + navegador.
+  O país vem do Cloudflare (request.cf.country) ou, na Vercel, do cabeçalho
+  x-vercel-ip-country; o IP vem de cf-connecting-ip ou x-real-ip. Em
+  desenvolvimento local o simulador devolve sempre US.
+- Câmbio e preço: definir 1 R$ = X Kz, exemplo com a taxa DOT, histórico.
+- Compras: valor total com a taxa DOT incluída (no detalhe: voo convertido +
+  taxa DOT = total cobrado), filtros, pesquisa, detalhe completo (itinerário, passageiros com nome
+  no formato APELIDO/NOME TÍTULO, pagamento, factura, SMS, eventos, auditoria) e
+  acções: verificar pagamento, confirmar à mão (com justificação), emitir bilhete
+  (PNR + SMS), emitir/actualizar factura, notas, cancelar, marcar reembolso.
+- Utilizadores: tornar/retirar admin, bloquear (termina as sessões).
+- SMS: saldo Nsangu, histórico e estado de cada mensagem.
+- Auditoria: todas as alterações feitas no painel (admin_audit).
+- Sistema: variáveis configuradas (sem mostrar valores) e verificação manual.
+
+13. SUPABASE
+Migrações (aplicar por ordem, uma vez, pelo MCP do Supabase ou no SQL Editor):
+1. supabase/migrations/20261107200641_dot_viagens_core.sql. Tabelas: customers,
+   otp_codes, sessions, exchange_rates, search_logs, bookings,
+   booking_passengers, payment_events, sms_messages, admin_audit. Funções:
+   verify_otp, admin_overview, admin_search_stats, next_booking_reference.
+2. supabase/migrations/20261107214259_dot_viagens_live_pricing.sql:
+   bookings.base_aoa, fee_aoa, markup_bp; customers.updated_at (gatilho);
+   search_logs.journey_id e journey_key (antigas preenchidas por
+   sessão|rota|adultos); índices; funções admin_live_state e
+   admin_search_journeys; admin_search_stats e admin_overview por jornada e
+   com a taxa DOT (fees_today, fees_30d, fees_total).
+3. supabase/migrations/20261107233029_dot_viagens_calendar_cache.sql:
+   tabela calendar_cache (cache_key, prices, created_at, expires_at), RLS
+   activo, acesso só do service_role; pg_cron dot-purge-calendar-cache ao
+   minuto 37 de cada hora apaga as entradas expiradas há mais de 1 hora.
+As três estão aplicadas no projecto ycbmqytyfdkrpxvjcblk.
+RLS activo em todas, sem políticas: anon e authenticated não acedem a nada.
+Desde 30/10/2026 o Supabase não concede acesso automático a tabelas novas; a
+migração concede ao service_role apenas select/insert/update/delete e execute.
+O Worker usa SUPABASE_SECRET_KEY (sb_secret_…, só no cabeçalho apikey).
+pg_cron: pesquisas > 7 dias, OTP > 1 dia, sessões terminadas > 7 dias,
+reservas por pagar > 72 h passam a expired.
+
+14. MAPA DE FICHEIROS
 public/home.html, styles.css: apresentação e formulário.
 public/app.js, interactions.js, carousel.js: lógica da home.
 public/airports.json, airports.js: catálogo e carregamento único.
-public/resultados.html, results.css, results.js: fluxo de selecção de voos.
-public/flight-model.js: filtros/companhias/ordenação/total testáveis e reutilizáveis.
-public/services.js: transporte para endpoint interno.
-server/flights.mjs, airport-codes.mjs: validação, cache e adaptador SerpApi.
-worker/index.ts: integração do endpoint no Worker.
+public/resultados.html, results.css, results.js: selecção de voos e compra.
+public/flight-model.js: filtros, ordenação, total, Kz, taxa DOT e resolveReturns.
+public/price-calendar.js: calendário com preços (home e resultados).
+public/itinerary-ui.js: logótipos das companhias (um ou dois sobrepostos, "+N"),
+nomes juntos ("Royal Air Maroc e TAAG Angola Airlines"), linha do tempo do
+itinerário e durações. Usado nos resultados e na compra.
+public/services.js: transporte da pesquisa.
+public/api.js, icons.js, otp-widget.js, countries.js: módulos partilhados.
+public/compra.html, compra.js, checkout.css: compra.
+public/pagar-passagens-em-kwanzas.html, guide.css, guide.js: guia (SEO).
+public/robots.txt, sitemap.xml, site.webmanifest, favicon.ico, favicon-16x16.png,
+favicon-32x32.png, apple-touch-icon.png, icon-192.png, icon-512.png,
+icon-maskable-512.png: SEO e ícones (secção 17A).
+public/minhas-viagens.html, minhas-viagens.js, trips.css: área do cliente.
+public/admin.html, admin.js, admin.css: painel (motor de tempo real em admin.js).
+server/router.mjs: rotas /api e registo das pesquisas.
+server/http.mjs, crypto.mjs, phone.mjs: utilitários.
+server/flights.mjs, airport-codes.mjs: pesquisa, validação e cache SerpApi.
+server/calendar.mjs: preços por dia (SerpApi Google Flights Calendar).
+server/offers.mjs: assinatura de ofertas e cotações.
+server/rates.mjs: câmbio e taxa DOT (MARKUP_BP).
+server/auth.mjs: OTP e sessões. server/sms.mjs, notify.mjs: Nsangu.
+server/bookings.mjs, passengers.mjs: compra e pagamento.
+server/wiza.mjs, vero.mjs: gateways. server/admin.mjs: API do painel.
+server/supabase.mjs: cliente PostgREST.
+supabase/migrations/: esquema da base de dados.
+worker/index.ts: integração no Worker (fetch e scheduled).
+api/index.mjs: função da Vercel (a mesma API). vercel.json: build, rotas,
+cabeçalhos, cache e cron. scripts/vercel-build.mjs: gera dist-vercel/.
+.vercelignore: ficheiros que não sobem para a Vercel.
 tests/*.test.mjs: contratos, tokens, preços, cache, validação e filtros.
 public/assets/: logo, paisagens e arte de bilhete; não é preciso regenerar.
+Versões optimizadas usadas pelo site: assets/hero/*.jpg (1280–1920 px + 960 px),
+banner-passaporte-dot.jpg (+ -960), logo-dot-320.png, boarding-tickets-900.webp
+(PNG de reserva), og-dot-viagens.jpg (1200×630, partilha). Os PNG originais
+grandes ficam no repositório mas não são publicados (lista SOURCE_ONLY em
+scripts/vercel-build.mjs).
 
-10. EXECUÇÃO / ENTREGA
-Node >=22.13; pnpm conforme packageManager em package.json.
-pnpm install
-pnpm dev
+15. EXECUÇÃO / ENTREGA
+Node >=22.13; pnpm 11.25.0 conforme packageManager (usar corepack pnpm).
+corepack pnpm install
+corepack pnpm dev
 node --test tests/*.test.mjs
-pnpm build
-pnpm start
-O projecto preserva o runtime Vinext/Sites. Para deploy fora desse ambiente,
-adaptar bindings/imports de runtime conforme o provedor escolhido.
-SERPAPI_KEY deve ser injectada no ambiente Worker. Nunca colocar em public/.
-Para desenvolvimento, configurar segredo local no mecanismo de ambiente do
-Worker e garantir que .dev.vars/.env permanecem fora do Git.
+corepack pnpm build
+Variáveis do Worker (em desenvolvimento no ficheiro .dev.vars, fora do Git):
+SERPAPI_KEY · SUPABASE_URL · SUPABASE_SECRET_KEY · NSANGU_API_KEY ·
+WIPAY_BASE_URL · WIPAY_CLIENT_ID · WIPAY_CLIENT_SECRET · WIPAY_WEBHOOK_SECRET ·
+VERO_API_KEY · VERO_ORG_ID · AUTH_SECRET · OFFER_SECRET · CRON_SECRET ·
+ADMIN_PHONES · PUBLIC_BASE_URL · OTP_HOURLY_LIMIT (opcional) ·
+SITE_URL (opcional, só no build da Vercel: domínio do SEO, secção 15A).
+AUTH_SECRET, OFFER_SECRET, CRON_SECRET e WIPAY_WEBHOOK_SECRET: valores aleatórios
+longos, diferentes em produção. Mudar AUTH_SECRET termina códigos pendentes;
+mudar OFFER_SECRET invalida pesquisas e cotações em curso.
+Produção: PUBLIC_BASE_URL = endereço HTTPS público (callbacks e retorno da Wiza).
+Em desenvolvimento local a Wiza não alcança localhost: o Express confirma-se pela
+consulta da página; uma Referência paga mais tarde só se confirma em produção
+(ou à mão no painel, depois de confirmada no painel da Wiza).
+Cron Trigger opcional no Worker (ex.: a cada minuto) para scheduled().
+O projecto preserva o runtime Vinext/Sites para desenvolvimento local.
 ZIP contém fontes, assets, lockfile e documentação. Exclui node_modules,
-.git, builds, cache de consultas e credenciais.
+.git, builds, .sites-runtime, cache de consultas e credenciais (.dev.vars).
+Repositório: https://github.com/Akejr/dotviagens (ramo main). .dev.vars,
+.env*, node_modules, dist-vercel, .vercel e .kiro/settings estão no .gitignore.
 
-11. PRÓXIMAS INTEGRAÇÕES
-Antes de vender: booking_options/revalidação da tarifa, regras de bagagem,
-identificação de passageiros, consentimento, Supabase com RLS, reserva de
-inventário quando suportada, pagamento confirmado por webhook idempotente,
-conciliação financeira, emissão real, notificações e cancelamentos.
+15A. PUBLICAÇÃO NA VERCEL
+Sem dependências npm em produção: o site é estático e a API usa só fetch e
+Web Crypto. vercel.json:
+- framework null; installCommand sem instalação; buildCommand
+  node scripts/vercel-build.mjs; outputDirectory dist-vercel.
+- O build copia public/ para dist-vercel/ (sem os PNG originais grandes),
+  cria index.html a partir de home.html e troca o endereço provisório
+  https://dotviagens.vercel.app (canonical, Open Graph, JSON-LD, robots e
+  sitemap) por SITE_URL ou, sem ele, pelo domínio de produção que a Vercel
+  dá ao projecto (VERCEL_PROJECT_PRODUCTION_URL). Actualiza o lastmod do
+  sitemap para o dia do build.
+- Rotas: /api/:path* → função api/index.mjs (rewrite com ?__path=; a função
+  reconstrói o caminho original e o domínio https a partir de
+  x-forwarded-proto/x-forwarded-host). /admin, /minhas-viagens e
+  /pagar-passagens-em-kwanzas servem os .html; /home.html e
+  /pagar-passagens-em-kwanzas.html redireccionam (308) para os endereços
+  limpos. cleanUrls fica desligado para /resultados.html e /compra.html (e os
+  retornos da Wiza) abrirem sem redireccionamento.
+- Trabalho depois da resposta (registos, SMS, factura, cache do calendário):
+  waitUntil do contexto da Vercel; sem ele, a função espera antes de responder.
+  maxDuration 60 s.
+- Cabeçalhos: nosniff, Referrer-Policy, X-Frame-Options SAMEORIGIN (o iframe da
+  Wiza volta ao nosso compra.html), Permissions-Policy, HSTS; X-Robots-Tag
+  noindex nas páginas privadas; cache de 7 dias em /assets e ícones, 1 dia em
+  airports.json. Sem CSP, para não partir o iframe da Wiza nem as fontes.
+- Cron: GET /api/internal/sweep uma vez por dia, 06:00 UTC (o plano Hobby só
+  permite uma vez por dia e pode correr até às 06:59). A Vercel envia
+  Authorization: Bearer CRON_SECRET. No plano Pro pode passar a
+  */10 * * * * (mínimo: uma vez por minuto). Entretanto, os pagamentos por
+  referência confirmam-se pelo callback da Wiza, pela página do cliente e pelo
+  botão de verificação no painel.
+Passos:
+1. Vercel → Add New → Project → importar Akejr/dotviagens. Não mudar as
+   opções de build (vêm do vercel.json).
+2. Settings → Environment Variables (Production): todas as variáveis da
+   secção 15, com PUBLIC_BASE_URL = endereço https final (sem barra no fim).
+   Com domínio próprio, definir também SITE_URL com o mesmo endereço.
+3. Deploy. Com um domínio novo ou mudança de SITE_URL, fazer Redeploy para o
+   SEO apontar para ele.
+4. Na Wiza, o callback é PUBLIC_BASE_URL/api/payments/wiza/callback (a
+   aplicação envia-o em cada pagamento).
+5. Google Search Console: adicionar o domínio e submeter /sitemap.xml.
+Teste local do build: node scripts/vercel-build.mjs (gera dist-vercel/).
+
+16. PRÓXIMAS INTEGRAÇÕES
+booking_options/revalidação da tarifa antes de cobrar e emissão automática
+(consolidador ou GDS); crianças e bebés; regras de bagagem; e-mail com bilhete e
+factura (hoje: SMS e Minhas viagens); reembolso integrado; câmbio automático
+(hoje manual); cache distribuído e quotas por utilizador para escala pública;
+telemetria sem segredos; políticas de privacidade e consentimento.
 A SerpApi é pesquisa; não é um sistema de emissão ou garantia tarifária.
-Para uso público, adicionar autenticação de cliente, quotas persistentes,
-limites globais, telemetria sem segredos e controlo de custo por conta.
-Conversão BRL→AOA não está implementada; interface e preços de pesquisa em BRL.
-TXT contém mecânica actual e limites; não confundir resumo com compra concluída.
+O preço pode mudar até à emissão: a equipa confirma antes de emitir e, se a
+tarifa já não existir, contacta o cliente (cancelamento/reembolso no painel).
 
-12. IDENTIDADE VISUAL E CONEXÕES
+17. IDENTIDADE VISUAL E CONEXÕES
 O logo fornecido pelo utilizador, sem a palavra Viagens, está em
-public/assets/logo-dot.png e é usado na home, resultados, rodapé e cartão.
-O banner usa a arte assets/banner-passaporte-dot.png: mão com passaporte
+public/assets/logo-dot.png; as páginas, o rodapé e o painel usam a cópia
+reduzida logo-dot-320.png.
+Favicon (ícone do separador): só o "O" laranja com o avião, recortado do logo,
+sobre um disco branco para o avião aparecer a branco. favicon.ico (16/32/48 px),
+favicon-16x16.png, favicon-32x32.png, apple-touch-icon.png (fundo branco),
+icon-192.png, icon-512.png e icon-maskable-512.png (site.webmanifest).
+Barra de anúncio no gradiente do logo (dourado → laranja → laranja escuro),
+texto branco. Cabeçalho fixo: ao fazer scroll ganha sombra, linha inferior no
+gradiente da marca e logo ligeiramente reduzido (home e páginas interiores).
+Ícones: conjunto de traço único (public/icons.js, 24 px, traço 1,7, cantos
+redondos; desenhos baseados em Lucide, licença ISC) em mosaicos suaves.
+Os ícones dos benefícios (por baixo da pesquisa) e dos passos da viagem não
+têm efeito de hover: são informativos, não botões.
+O banner usa a arte assets/banner-passaporte-dot.jpg: mão com passaporte
 angolano e bilhete DOT. É uma ilustração publicitária, não um bilhete real.
-No desktop a arte inteira é um link para a pesquisa. No mobile, a copy
-aparece em HTML e a imagem é enquadrada à direita para destacar os documentos.
 As conexões mostram a duração por extenso e a cidade em laranja/negrito,
 com o aeroporto numa linha secundária. Ex.: Conexão de 2 horas em Lisboa
 (Humberto Delgado). Nomes vêm do catálogo; CMN é apresentado como Casablanca.
+Duas ou mais companhias no mesmo percurso: logótipos redondos sobrepostos
+(os dois primeiros e "+N" para as restantes) e os nomes juntos, por exemplo
+"Royal Air Maroc e TAAG Angola Airlines"; cada segmento do itinerário mostra
+o logótipo da sua companhia.
 Hero: Serra da Leba, Marginal de Luanda, Ilha de Luanda e Quedas de Kalandula.
-A legenda acompanha cada slide, sem cartão, borda, blur ou ícone. Um gradiente
-escuro radial suave atrás do texto escurece localmente a fotografia, com
-limites esbatidos. Mantém a leitura em fotografias claras e escuras.
+A legenda acompanha cada slide, sem cartão, borda, blur ou ícone.
+Todas as páginas públicas (home, resultados, compra, Minhas viagens, guia) têm
+o rodapé da home (footer.site-footer). Botão de voltar: pílula branca com a
+seta num círculo laranja claro ("Nova pesquisa", "Voltar aos resultados",
+"Minhas viagens", "Voltar"). Os resultados e a compra não mostram a moeda:
+o site é todo em kwanzas. Não há textos de pré-lançamento.
+Fundo das páginas interiores: creme #faf9f6.
+Minhas viagens usa o cabeçalho, a barra de anúncio e o rodapé da home, com
+cartões de embarque; os campos têm a etiqueta dentro, como na compra.
+Painel: barra lateral escura (#1c1e19) com o item activo no gradiente da marca,
+fundo creme (#f7f5f0), mosaicos de ícones como os benefícios da home, banner
+com a Marginal de Luanda (assets/admin-luanda.jpg, 1600 px, reduzido de
+angola-city.png) e entrada em ecrã dividido (foto + código SMS).
+Tokens de cor e tipografia comuns (Manrope títulos, DM Sans texto).
 
-13. MANUTENÇÃO DESTA DOCUMENTAÇÃO
+17A. SEO
+Pesquisas alvo: passagens aéreas baratas, passagens baratas, passagens aéreas
+Angola, pagar passagens em kwanzas, bilhetes baratos, pagar bilhetes em
+kwanzas, bilhetes de avião com Multicaixa Express.
+Home (/):
+- title "Passagens aéreas baratas em kwanzas | DOT Viagens Angola", meta
+  description, canonical, hreflang pt-AO e x-default, robots com
+  max-image-preview:large, Open Graph e Twitter com assets/og-dot-viagens.jpg.
+- H1 (o texto pequeno por cima do slogan): "Passagens aéreas baratas · Paga em
+  kwanzas". O slogan "O mundo à tua espera." mantém o mesmo visual.
+- Secção "Passagens aéreas baratas, pagas em kwanzas": texto e botões de rota
+  a partir de Luanda (Lisboa, Porto, São Paulo, Dubai, Joanesburgo, Cidade do
+  Cabo, Paris, Istambul) e ligação para o guia.
+- Dados estruturados JSON-LD: TravelAgency (contacto WhatsApp, Luanda, AOA,
+  Multicaixa Express e Referência, DOT Angola), WebSite e FAQPage.
+Guia /pagar-passagens-em-kwanzas: passos, formas de pagamento, o que acontece
+depois, preço final e perguntas; JSON-LD WebPage, BreadcrumbList e FAQPage.
+Regra: o texto das perguntas no JSON-LD (FAQPage) tem de ser IGUAL ao das
+perguntas visíveis. Ao mudar uma, mudar a outra.
+Páginas fora do Google: resultados, compra, Minhas viagens, painel e /api
+(meta robots noindex, X-Robots-Tag e Disallow no robots.txt). Os resultados
+não são indexados porque cada visita faz pesquisas pagas na SerpApi e os
+preços mudam constantemente.
+sitemap.xml: / e /pagar-passagens-em-kwanzas (com imagens). robots.txt aponta
+para o sitemap.
+Velocidade (Core Web Vitals): paisagens em JPG com srcset (960 px no
+telemóvel), primeira imagem pré-carregada com fetchpriority=high, restantes
+imagens lazy, fontes por <link> com preconnect, arte dos bilhetes em WebP e
+não descarregada no telemóvel (onde está escondida). Publicação: ~6 MB.
+Depois de publicar: Google Search Console → adicionar o domínio → Sitemaps →
+submeter /sitemap.xml. Próximo passo sugerido: páginas por rota (por exemplo
+"Passagens Luanda Lisboa") com conteúdo próprio e verdadeiro.
+
+18. MANUTENÇÃO DESTA DOCUMENTAÇÃO
 Este ficheiro descreve a versão entregue e deve acompanhar cada actualização
 de código, com revisão das secções afectadas. Não se actualiza sozinho por
 software. Incluí-lo sempre no ZIP e entregar uma cópia TXT separada.
-Testes actuais: 14 testes automáticos, incluindo mudança de data de volta,
-resolução do token actualizado e prevenção da substituição indevida da ida.
+Testes automáticos do projecto: 14 (pesquisa, tokens, preços, cache, validação,
+filtros). O fluxo de compra, OTP, pagamentos, callbacks, factura, taxa DOT,
+calendário (incluindo o cache partilhado), jornadas de pesquisa e painel ao
+vivo foi validado com fornecedores simulados (41 verificações) e no browser
+(desktop e telemóvel 320–390 px), mais uma consulta real ao calendário da
+SerpApi; o adaptador da Vercel (api/index.mjs) e o build foram testados
+localmente. Estas verificações ainda não estão no repositório como testes
+automáticos.

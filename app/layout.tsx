@@ -5,8 +5,9 @@ export const metadata: Metadata = {
   title: "DOT Viagens",
   description: "Pesquisa voos com a DOT Viagens.",
   icons: {
-    icon: "/favicon.svg",
-    shortcut: "/favicon.svg",
+    icon: "/favicon.ico",
+    shortcut: "/favicon.ico",
+    apple: "/apple-touch-icon.png",
   },
 };
 

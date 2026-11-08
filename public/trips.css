@@ -1,0 +1,139 @@
+/* "Minhas viagens": home header and footer, warm hero with the ticket art and
+   boarding-pass cards. Loaded after styles.css, results.css and checkout.css. */
+.trips-page{background:#fff}
+.account.active{border-color:#f8b18d;background:#fff7f1;color:#b34b00}
+.account span svg{display:block}
+
+/* Hero */
+.trips-hero{position:relative;overflow:hidden;display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);align-items:center;gap:24px;min-height:330px;padding:46px 56px 96px;border-radius:30px;background:linear-gradient(115deg,#fff7e8 0%,#fff0e4 58%,#ffe6d5 100%);margin-top:6px}
+.trips-hero:before{content:'';position:absolute;width:560px;height:560px;right:-160px;top:-230px;border-radius:50%;background:radial-gradient(circle,#ffd3a8 0%,#ffd3a800 68%);pointer-events:none}
+.trips-hero>*{position:relative}
+.trips-hero h1{font-size:50px;font-weight:650;letter-spacing:-2.3px;line-height:1.06;margin:14px 0;color:var(--ink)}
+.trips-hero h1 em{font-style:normal;background:var(--brand-gradient);-webkit-background-clip:text;background-clip:text;color:transparent}
+.trips-hero p{font-size:14px;color:#7a6a5c;line-height:1.75;max-width:470px}
+.trips-hero-art{width:min(100%,520px);height:auto;justify-self:end;transform:rotate(-5deg) translateY(8px);filter:drop-shadow(0 26px 40px #a3480026);margin:-24px -14px -44px 0;pointer-events:none;user-select:none}
+.trips-body{position:relative;z-index:2;margin:-62px auto 90px}
+.trips-body>.panel.status-hero{border-radius:24px;box-shadow:0 26px 60px #3a1c0414}
+.trips-body .status-hero .spinner{border-color:#ffe2c3;border-top-color:#f5770c;width:24px;height:24px}
+
+/* Access */
+.trips-login{display:grid;grid-template-columns:minmax(0,1fr) 370px;gap:22px;align-items:start}
+.trips-login .panel{border-radius:24px;border-color:#efe7dc;box-shadow:0 26px 60px #3a1c0414;padding:32px}
+.trips-perks{background:#fff;border:1px solid #efe7dc;border-radius:24px;padding:26px;box-shadow:0 14px 34px #3a1c040b}
+.trips-perks h3{font-size:16px;margin-bottom:16px}
+.perk{display:flex;gap:14px;align-items:flex-start;padding:14px 0;border-top:1px solid #f4ede4}
+.perk:first-of-type{border-top:0;padding-top:2px}
+.perk p{display:flex;flex-direction:column;gap:4px}
+.perk strong{font-size:14px}
+.perk small{font-size:12px;color:#857b70;line-height:1.55}
+.trips-perks .perk-help{font-size:12px;color:#857b70;margin-top:14px}
+.perk-help a{color:#b34b00;font-weight:650}
+
+/* Signed in */
+.trips-account{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;background:#fff;border:1px solid #efe7dc;border-radius:22px;padding:18px 22px;box-shadow:0 22px 50px #3a1c0412;margin-bottom:34px}
+.trips-user{display:flex;align-items:center;gap:14px;min-width:0}
+.trips-user .avatar{width:50px;height:50px;border-radius:16px;display:grid;place-items:center;flex:none;background:var(--brand-gradient);color:#fff;font-family:Manrope,sans-serif;font-weight:800;font-size:17px;box-shadow:0 10px 22px #ef590030}
+.trips-user strong{display:block;font-family:Manrope,sans-serif;font-size:17px;letter-spacing:-.3px}
+.trips-user span{font-size:12.5px;color:#857b70}
+.trips-actions{display:flex;gap:10px;flex-wrap:wrap}
+.trips-actions .primary{padding:12px 18px;font-size:13px}
+.trips-actions .secondary{display:inline-flex;align-items:center;gap:7px}
+.trips-group+.trips-group{margin-top:38px}
+.group-head{display:flex;align-items:center;gap:10px;margin:0 0 16px}
+.group-head h2{font-size:23px;letter-spacing:-.7px;margin:0}
+.group-head span{font-size:12px;font-weight:700;color:#b34b00;background:#fff1e6;border-radius:20px;padding:3px 10px}
+.group-empty{display:flex;align-items:center;gap:12px;flex-wrap:wrap;border:1px dashed #efcfb2;background:#fffaf5;border-radius:18px;padding:18px 20px;font-size:13px;color:#7a6a5c}
+.group-empty svg{color:var(--orange)}
+.group-empty .link-btn{margin-left:auto}
+
+/* Boarding pass */
+.pass-list{display:grid;gap:18px}
+.pass{position:relative;display:grid;grid-template-columns:minmax(0,1fr) 260px;background:#fff;border:1px solid #efe5d8;border-radius:24px;box-shadow:0 12px 32px #3a1c040d;overflow:hidden;transition:box-shadow .3s,border-color .3s}
+.pass:hover{box-shadow:0 20px 44px #3a1c0417;border-color:#f6cfae}
+.pass:before{content:'';position:absolute;left:0;top:0;bottom:0;width:6px;background:var(--brand-gradient);z-index:1}
+.pass.closed:before{background:#d8d9d1}
+.pass.payment_failed:before{background:#e0532c}
+.pass-main{padding:24px 28px 22px 34px;min-width:0}
+.pass-top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.pass-kind{display:inline-flex;align-items:center;gap:8px;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#c25000}
+.pass-route{display:grid;grid-template-columns:auto minmax(90px,1fr) auto;align-items:center;gap:22px;margin:22px 0 22px}
+.pass-city{min-width:0}
+.pass-city strong{display:block;font-family:Manrope,sans-serif;font-size:42px;font-weight:800;letter-spacing:-1.5px;line-height:1}
+.pass-city span{display:block;font-size:13px;font-weight:650;margin-top:7px}
+.pass-city small{display:block;font-size:12px;color:#8a8175;margin-top:3px}
+.pass-city.to{text-align:right}
+.pass-path{position:relative;display:grid;place-items:center;height:58px}
+.pass-line{position:absolute;left:0;right:0;top:50%;border-top:2px dashed #f2c9a6}
+.pass-line:before,.pass-line:after{content:'';position:absolute;top:-5px;width:8px;height:8px;border-radius:50%;background:#fff;border:2px solid #f5a66b}
+.pass-line:before{left:-2px}
+.pass-line:after{right:-2px}
+.pass-plane{position:relative;width:40px;height:40px;border-radius:50%;display:grid;place-items:center;background:var(--brand-gradient);color:#fff;box-shadow:0 8px 18px #ef590033}
+.pass-plane svg{transform:rotate(45deg)}
+.pass-path small{position:absolute;bottom:-16px;font-size:11px;color:#8a8175;white-space:nowrap}
+.pass-meta{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;border-top:1px solid #f4ece2;padding-top:16px}
+.pass-meta small{display:block;font-size:10.5px;letter-spacing:.7px;text-transform:uppercase;color:#a0968a;font-weight:700}
+.pass-meta strong{display:block;font-size:13px;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pass-stub{position:relative;display:flex;flex-direction:column;justify-content:space-between;gap:16px;padding:24px 24px 22px 26px;background:linear-gradient(155deg,#fff8ed,#fff0e5);border-left:2px dashed #f0d2b6}
+.pass-stub:before,.pass-stub:after{content:'';position:absolute;left:-14px;width:26px;height:26px;border-radius:50%;background:#fff;border:1px solid #efe5d8}
+.pass-stub:before{top:-14px}
+.pass-stub:after{bottom:-14px}
+.pass-stub small{display:block;font-size:10.5px;letter-spacing:.8px;text-transform:uppercase;color:#a07a5c;font-weight:700}
+.pnr{display:block;font-family:Manrope,sans-serif;font-size:28px;font-weight:800;letter-spacing:3px;color:var(--ink);margin-top:5px}
+.pnr.pending{font-size:15px;letter-spacing:0;color:#a46a3d;font-weight:700}
+.pass-amount{display:block;font-family:Manrope,sans-serif;font-size:23px;font-weight:800;letter-spacing:-.6px;color:#d14f00;margin-top:5px;white-space:nowrap}
+.pass-date{display:block;font-size:11px;color:#a08a76;margin-top:3px}
+.pass-buttons{display:grid;gap:8px}
+.pass-pay{min-height:42px;font-size:13px;padding:0 14px}
+.pass-toggle{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid #f1cfb1;background:#fff;border-radius:10px;padding:10px 12px;font-size:12.5px;font-weight:650;color:#a74900}
+.pass-toggle:hover{background:#fff5eb;border-color:#f9a862}
+.pass-toggle svg{transition:transform .25s var(--ease)}
+.pass-toggle[aria-expanded=true] svg{transform:rotate(180deg)}
+.pass.closed .pass-city strong,.pass.closed .pass-amount,.pass.closed .pnr{color:#9a9c94}
+.pass.closed .pass-plane{background:#c9cac2;box-shadow:none}
+.pass-detail{grid-column:1/-1;border-top:1px solid #f4ece2;background:#fcfbf8;padding:24px 28px 26px 34px;display:grid;gap:14px}
+.pass-detail .detail-block{background:#fff;border:1px solid #f1ebe2;border-radius:16px;padding:16px 18px}
+.pass-detail .notice{margin:0}
+.seg-list{display:grid}
+.seg{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:14px;align-items:center;font-size:13px;padding:11px 0;border-top:1px solid #f4efe7}
+.seg:first-child{border-top:0;padding-top:2px}
+.seg .airline-logo,.seg .logo-fallback{width:34px;height:34px;flex:none}
+.seg strong{display:block;font-weight:650}
+.seg small{display:block;font-size:11.5px;color:#8a8175;margin-top:3px}
+.seg-time{font-family:Manrope,sans-serif;font-weight:750;font-size:14px;white-space:nowrap;text-align:right}
+.seg-time sup{font-size:10px;color:#c25000;margin-left:2px}
+.seg-time small{font-family:'DM Sans',sans-serif;font-weight:500}
+.layover-note{display:flex;align-items:center;gap:8px;font-size:12px;color:#9a5a24;background:#fff6ec;border-radius:10px;padding:8px 11px;margin:2px 0 4px}
+.trips-empty{display:grid;grid-template-columns:minmax(0,1fr) 320px;align-items:center;gap:26px;background:#fff;border:1px solid #efe5d8;border-radius:24px;padding:34px 38px;box-shadow:0 14px 34px #3a1c040b}
+.trips-empty h3{font-size:24px;letter-spacing:-.7px;margin:10px 0 0}
+.trips-empty p{font-size:13.5px;color:#857b70;line-height:1.7;margin:10px 0 20px;max-width:460px}
+.trips-empty img{width:100%;height:auto;transform:rotate(-4deg);filter:drop-shadow(0 18px 26px #a3480020)}
+
+@media(max-width:1100px){.trips-hero{padding:40px 40px 92px}.trips-hero h1{font-size:42px;letter-spacing:-1.8px}}
+@media(max-width:980px){.trips-login{grid-template-columns:1fr}.pass{grid-template-columns:minmax(0,1fr) 230px}.pass-city strong{font-size:34px}}
+@media(max-width:760px){
+  .trips-hero{grid-template-columns:1fr;min-height:0;padding:30px 22px 84px;border-radius:24px}
+  .trips-hero-art{display:none}
+  .trips-hero h1{font-size:33px;letter-spacing:-1.3px;max-width:290px}
+  .trips-hero p{font-size:13px}
+  .trips-body{margin-top:-56px}
+  .trips-login .panel{padding:22px 18px}
+  .trips-account{padding:16px}
+  .trips-actions{width:100%}
+  .trips-actions>*{flex:1;justify-content:center}
+  .pass{grid-template-columns:1fr}
+  .pass-main{padding:20px 18px 18px 24px}
+  .pass-route{gap:12px;margin:18px 0}
+  .pass-city strong{font-size:30px}
+  .pass-meta{grid-template-columns:1fr 1fr}
+  .pass-meta div:last-child{grid-column:1/-1}
+  .pass-stub{border-left:0;border-top:2px dashed #f0d2b6;display:grid;grid-template-columns:1fr 1fr;padding:20px 18px 18px 24px}
+  .pass-stub:before,.pass-stub:after{top:-14px;bottom:auto}
+  .pass-stub:before{left:-14px}
+  .pass-stub:after{left:auto;right:-14px}
+  .pass-buttons{grid-column:1/-1}
+  .pass-detail{padding:18px 16px 20px 22px}
+  .seg{grid-template-columns:auto minmax(0,1fr);row-gap:6px}
+  .seg-time{grid-column:2;text-align:left}
+  .trips-empty{grid-template-columns:1fr;padding:26px 22px}
+  .trips-empty img{display:none}
+}

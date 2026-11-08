@@ -7,3 +7,70 @@
 @media(max-width:700px){.results-header{gap:14px;height:auto;min-height:80px;flex-wrap:wrap;padding:14px 20px}.results-header nav{order:3;width:100%;margin:0;justify-content:center;gap:26px;font-size:12px}.results-header .help-link{margin-left:auto}.journey-steps{gap:6px;scroll-margin-top:140px}.journey-steps button,.journey-steps>span{padding:10px;font-size:10px;flex:1;text-align:center}.date-compare{align-items:flex-start;flex-direction:column}.date-compare button{width:100%}.summary-grid{grid-template-columns:1fr}.summary-leg,.total-panel{padding:19px}.selection-banner{padding:16px}.selection-banner strong{font-size:12px}.summary-heading h2{font-size:25px}.total-panel{position:static}.offer-bottom{gap:8px}.price-column{min-width:125px}.flight-price{font-size:20px}}
 .date-toolbar h2,.filter-heading h2{letter-spacing:-.2px;line-height:1.5}.route-details h3,.summary-leg h3{letter-spacing:-.2px}
 .connection{display:flex;gap:12px;align-items:center;font-size:13px;line-height:1.65;background:#fff5e9;border:1px solid #ffe3c5;border-left:3px solid #ff8b24;padding:14px 17px;color:#846d57}.connection strong{color:#c85b08;font-weight:700}.connection small{display:block;font-size:11px;color:#96826b;margin-top:3px}.connection-icon{font-size:23px;color:#d87323;flex:none}.date-jump{display:flex;align-items:center;gap:12px;font-size:12px;color:#7c8072}.date-jump input{border:1px solid #e6ded2;background:#fff;border-radius:9px;padding:11px;color:#a44e10}.results-header img{width:125px;height:45px;object-fit:contain}@media(max-width:700px){.connection{font-size:12px;margin-left:0}.date-jump{width:100%;justify-content:space-between}}
+/* Sticky header highlight and access to "Minhas viagens". */
+.results-header{transition:box-shadow .35s var(--ease)}
+.results-header:after{content:'';position:absolute;left:0;right:0;bottom:-1px;height:3px;background:var(--brand-gradient);transform:scaleX(0);transform-origin:left center;transition:transform .55s var(--ease);pointer-events:none}
+.results-header.scrolled{box-shadow:0 14px 34px #3a1c0414}
+.results-header.scrolled:after{transform:scaleX(1)}
+.results-header img{transition:transform .35s var(--ease)}
+.results-header.scrolled img{transform:scale(.92)}
+.account-link{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:9px;padding:9px 14px;font-size:12px;background:#fff;white-space:nowrap}
+.account-link:hover,.account-link.active{border-color:#f8b18d;background:#fff7f1;color:#b34b00}
+.results-header .help-link+.account-link{margin-left:-16px}
+.buy-note{font-size:12px!important;color:#a15a1c!important;margin-top:8px!important}
+.total-panel .primary:disabled{opacity:.55;cursor:not-allowed}
+@media(max-width:700px){.account-link span{display:none}.account-link{padding:9px}.results-header .help-link+.account-link{margin-left:0}}
+@media(prefers-reduced-motion:reduce){.results-header:after,.results-header img{transition:none}}
+/* Date jump opens the priced calendar (price-calendar.js) */
+.date-jump-trigger{display:inline-flex;align-items:center;gap:10px;border:1px solid #e6ded2;background:#fff;border-radius:9px;padding:10px 13px;color:#a44e10;font:inherit;font-size:13px;font-weight:650;cursor:pointer;transition:border-color .2s,background .2s,box-shadow .2s}
+.date-jump-trigger svg{color:var(--orange)}
+.date-jump-trigger:hover,.date-jump-trigger[aria-expanded=true]{border-color:#f8b18d;background:#fff7f1;box-shadow:0 4px 12px #f46b2c12}
+.date-jump-trigger:focus-visible{outline:2px solid var(--orange);outline-offset:2px}
+@media(max-width:760px){.date-jump-trigger{flex:1;justify-content:space-between}}
+/* Purchase flow: warm canvas like the home sections */
+.results-page{background:#faf9f6}
+/* Back button: pill with the arrow in a soft orange tile */
+.back-link{display:inline-flex;align-items:center;gap:10px;margin-bottom:26px;padding:6px 18px 6px 6px;border:1px solid var(--line);border-radius:40px;background:#fff;color:var(--ink);font-size:13px;font-weight:600;line-height:1;box-shadow:0 2px 10px #2b241a08;transition:border-color .2s,box-shadow .25s,color .2s}
+.back-icon{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;flex:none;background:linear-gradient(145deg,#fff7ec,#ffe8d8);color:var(--orange);box-shadow:inset 0 0 0 1px #ffd8bd;transition:background .25s,color .25s,box-shadow .25s}
+.back-icon svg{transition:transform .25s var(--ease)}
+.back-link:hover{border-color:#f8b18d;color:#b34b00;box-shadow:0 8px 20px #ef590014}
+.back-link:hover .back-icon{background:var(--brand-gradient);color:#fff;box-shadow:none}
+.back-link:hover .back-icon svg{transform:translateX(-2px)}
+/* Two (or more) airlines on one trip: overlapping round logos */
+.airline-pair{position:relative;display:inline-block;width:46px;height:46px;flex:none}
+.airline-pair>.airline-logo,.airline-pair>.logo-fallback{position:absolute;width:31px;height:31px;margin:0;border-radius:50%;object-fit:contain;background:#fff;padding:3px;box-sizing:border-box;box-shadow:0 0 0 2px #fff,0 3px 10px #2b241a26}
+.airline-pair>:first-child{left:0;top:0;z-index:1}
+.airline-pair>:nth-child(2){right:0;bottom:0;z-index:2}
+.airline-pair>.logo-fallback{display:grid;place-items:center;font-size:10px;font-weight:700;color:#da6208;background:#fff5e9}
+.pair-more{position:absolute;z-index:3;right:-6px;top:-4px;min-width:19px;height:19px;padding:0 5px;border-radius:12px;background:var(--brand-gradient);color:#fff;font-size:10px;font-weight:800;font-style:normal;line-height:19px;text-align:center;box-shadow:0 0 0 2px #fff}
+.airline-brand .airline-logo{border-radius:50%;background:#fff;box-shadow:0 0 0 1px #efe7dc;padding:2px;box-sizing:border-box}
+.airline-brand.multi strong{font-size:11.5px;line-height:1.45}
+.selection-banner{justify-content:flex-start}
+.selection-banner>div{flex:1;min-width:0}
+.selection-banner>.airline-pair,.selection-banner>.airline-logo,.selection-banner>.logo-fallback{margin:0}
+.selection-banner>.logo-fallback{display:grid}
+/* Itinerary timeline (results, summary and checkout) */
+.timeline{list-style:none;margin:0;padding:0}
+.timeline li{display:grid;grid-template-columns:54px 20px minmax(0,1fr);column-gap:14px}
+.tl-time{font-family:Manrope,sans-serif;font-size:15px;font-weight:750;letter-spacing:-.3px;text-align:right;white-space:nowrap;line-height:22px;color:var(--ink)}
+.tl-time sup{font-size:10px;font-weight:700;color:var(--orange);margin-left:1px}
+.tl-rail{position:relative}
+.tl-rail:before{content:'';position:absolute;left:9px;top:0;bottom:0;width:2px;background:#f2d2b8}
+.timeline li:first-child .tl-rail:before{top:11px}
+.timeline li:last-child .tl-rail:before{bottom:auto;height:11px}
+.tl-stop .tl-rail:after{content:'';position:absolute;left:4px;top:5px;width:12px;height:12px;border-radius:50%;background:#fff;border:2.5px solid var(--orange);box-sizing:border-box}
+.tl-layover .tl-rail:before{background:repeating-linear-gradient(to bottom,#f3b88a 0 4px,transparent 4px 9px)}
+.tl-body{min-width:0;padding-bottom:4px}
+.tl-body strong{display:block;font-size:14px;font-weight:650;line-height:22px;color:var(--ink)}
+.tl-body small{display:block;font-size:12px;color:#8a8f84;margin-top:1px;line-height:1.5}
+.tl-flight .tl-body{display:flex;align-items:center;gap:12px;padding:12px 0 16px}
+.tl-flight .tl-body strong{font-size:13px;line-height:1.4}
+.tl-flight .airline-logo,.tl-flight .logo-fallback{width:32px;height:32px;flex:none;border-radius:50%;background:#fff;box-shadow:0 0 0 1px #efe7dc;padding:2px;box-sizing:border-box;object-fit:contain}
+.tl-flight .logo-fallback{display:grid;place-items:center;font-size:10px}
+.tl-layover .tl-body{display:flex;gap:12px;align-items:center;margin:8px 0 14px;padding:12px 15px;background:#fff6ec;border:1px solid #ffe2c6;border-radius:14px;font-size:13px;line-height:1.55;color:#846d57}
+.tl-layover .tl-body strong{display:inline;font-size:inherit;line-height:inherit;color:#c85b08;font-weight:700}
+.tl-layover .tl-body small{color:#96826b}
+.tl-layover .connection-icon{font-size:20px;color:#d87323;flex:none}
+.route-details .timeline{max-width:720px}
+.summary-leg .timeline{margin-top:14px}
+@media(max-width:560px){.timeline li{grid-template-columns:44px 18px minmax(0,1fr);column-gap:10px}.tl-time{font-size:14px}.tl-rail:before{left:8px}.tl-stop .tl-rail:after{left:3px}}

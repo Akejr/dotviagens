@@ -1,0 +1,13 @@
+# DOT Viagens — passagens aéreas em kwanzas
+User-agent: *
+Allow: /
+# Pesquisas, compra, área do cliente e painel: privados ou sem conteúdo próprio.
+# /api/ também protege a quota do fornecedor de voos contra robôs que executam JavaScript.
+Disallow: /api/
+Disallow: /admin
+Disallow: /admin.html
+Disallow: /compra.html
+Disallow: /resultados.html
+Disallow: /minhas-viagens
+
+Sitemap: https://dotviagens.vercel.app/sitemap.xml

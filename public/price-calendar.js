@@ -1,0 +1,284 @@
+// Date picker with the cheapest indicative price under each day (home search and results).
+// Prices come from /api/flights/calendar (one request per month view) in BRL and are shown
+// like every other price on the site: câmbio do dia + DOT fee, in kwanzas.
+
+import { totalKz, totalBrl } from './flight-model.js';
+
+// Indicative prices: kept 3 hours in this browser (the server keeps a shared copy for 6 hours).
+const CACHE_KEY = 'dot-calendar-v2';
+const TTL = 3 * 60 * 60 * 1000;
+// Same as MARKUP_BP on the server; only used if /api/rate cannot be read.
+const FALLBACK_MARKUP_BP = 1100;
+const memory = new Map();
+const pending = new Map();
+let pricingTask = null;
+
+const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+const pad = n => String(n).padStart(2, '0');
+export const isoOf = date => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+const parse = iso => new Date(`${iso}T12:00:00`);
+export const addDaysIso = (iso, days) => {
+  const date = parse(iso);
+  date.setDate(date.getDate() + days);
+  return isoOf(date);
+};
+export const daysBetweenIso = (from, to) => Math.round((parse(to) - parse(from)) / 86400000);
+const monthText = new Intl.DateTimeFormat('pt-PT', { month: 'long', year: 'numeric' });
+const longDay = new Intl.DateTimeFormat('pt-PT', { dateStyle: 'full' });
+const oneDecimal = new Intl.NumberFormat('pt-AO', { maximumFractionDigits: 1 });
+const kzFull = new Intl.NumberFormat('pt-AO', { style: 'currency', currency: 'AOA', maximumFractionDigits: 0 });
+const brlFull = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+
+try {
+  localStorage.removeItem('dot-calendar-v1');
+  sessionStorage.removeItem('dot-calendar-v1');
+  for (const [key, value] of JSON.parse(localStorage.getItem(CACHE_KEY) || '[]')) if (value.until > Date.now()) memory.set(key, value);
+} catch {
+  // Private mode or corrupted cache: start empty.
+}
+
+function persist() {
+  while (memory.size > 60) memory.delete(memory.keys().next().value);
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify([...memory].filter(([, value]) => value.until > Date.now())));
+  } catch {
+    // Storage full or blocked: memory cache still works.
+  }
+}
+
+export function loadPricing() {
+  pricingTask ||= fetch('/api/rate', { headers: { Accept: 'application/json' } })
+    .then(response => (response.ok ? response.json() : null))
+    .catch(() => null)
+    .then(data => ({
+      rate: Number(data?.rate) > 0 ? Number(data.rate) : null,
+      markupBp: Number.isInteger(data?.markupBp) ? data.markupBp : FALLBACK_MARKUP_BP,
+    }));
+  return pricingTask;
+}
+
+// Map of 'YYYY-MM-DD' -> { amount (BRL), ... } for one month of one query.
+export function monthPrices(query, month) {
+  const body = { ...query, month };
+  const key = JSON.stringify(body);
+  const saved = memory.get(key);
+  if (saved && saved.until > Date.now()) return Promise.resolve(new Map(saved.prices));
+  if (pending.has(key)) return pending.get(key);
+  const task = fetch('/api/flights/calendar', {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(40000),
+  }).then(async response => {
+    const data = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(data?.error || 'Preços indisponíveis.');
+    const prices = (data?.prices || []).map(price => [price.date, price]);
+    memory.set(key, { prices, until: Date.now() + TTL });
+    persist();
+    return new Map(prices);
+  }).finally(() => pending.delete(key));
+  pending.set(key, task);
+  return task;
+}
+
+// Starts loading a month in the background (route chosen, hover on the dates or on the next arrow).
+export function prefetchMonth(query, month) {
+  if (!query || !/^\d{4}-\d{2}$/.test(month || '')) return;
+  monthPrices(query, month).catch(() => {});
+  loadPricing();
+}
+
+// Compact price for the calendar cells: "953 mil", "2,6 M" (kwanzas) or "R$ 4,5 mil".
+export function shortPrice(brl, pricing) {
+  if (pricing?.rate) {
+    const kz = totalKz(brl, pricing.rate, pricing.markupBp);
+    if (Math.round(kz / 1000) >= 1000) return `${oneDecimal.format(kz / 1e6)} M`;
+    if (kz >= 1000) return `${Math.round(kz / 1000)} mil`;
+    return String(kz);
+  }
+  const value = totalBrl(brl, pricing?.markupBp ?? FALLBACK_MARKUP_BP);
+  return value >= 1000 ? `R$ ${oneDecimal.format(value / 1000)} mil` : `R$ ${Math.round(value)}`;
+}
+
+const fullPrice = (brl, pricing) => (pricing?.rate
+  ? kzFull.format(totalKz(brl, pricing.rate, pricing.markupBp))
+  : brlFull.format(totalBrl(brl, pricing?.markupBp ?? FALLBACK_MARKUP_BP)));
+
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+// What the number under each day means, for the legend.
+export function priceMeaning(query) {
+  if (!query) return '';
+  const adults = plural(query.passengers || 1, 'adulto', 'adultos');
+  if (query.type === 'oneway') return `Só ida · ${adults}`;
+  if (query.fixedOutbound) return `Total ida e volta, com partida a ${query.fixedOutbound.split('-').reverse().slice(0, 2).join('/')} · ${adults}`;
+  return `Ida e volta de ${plural(query.tripDays || 7, 'dia', 'dias')} · ${adults}`;
+}
+
+/**
+ * Renders a month calendar into `root`.
+ * opts: value, min, max (ISO dates), heading, foot (trusted HTML), outboundDay,
+ * priceQuery ({origin, destination, passengers, type, fixedOutbound?, tripDays?} or null),
+ * emptyNote, onSelect(iso), onRender().
+ */
+export function mountCalendar(root, opts) {
+  const { min, max } = opts;
+  const start = opts.value && opts.value >= min ? opts.value : min;
+  let month = parse(start);
+  month.setDate(1);
+
+  function dayButton(date) {
+    const iso = isoOf(date);
+    const disabled = iso < min || iso > max;
+    const classes = ['day', iso === opts.value ? 'chosen' : '', iso === isoOf(new Date()) ? 'today' : '', iso === opts.outboundDay ? 'outbound-day' : ''].filter(Boolean).join(' ');
+    const label = `${longDay.format(date)}${iso === opts.outboundDay ? ' · dia da ida' : ''}`;
+    return `<button type="button" class="${classes}" data-date="${iso}" data-label="${esc(label)}" aria-label="${esc(label)}" aria-pressed="${iso === opts.value}" ${disabled ? 'disabled' : ''}><span class="day-num">${date.getDate()}</span><span class="day-price">${opts.priceQuery && !disabled ? '<i class="price-dot"></i>' : ''}</span></button>`;
+  }
+
+  function legend(state, extra = '') {
+    const box = root.querySelector('.calendar-legend');
+    if (!box) return;
+    if (!opts.priceQuery) {
+      box.innerHTML = opts.emptyNote ? `<span>${esc(opts.emptyNote)}</span>` : '';
+      return;
+    }
+    const meaning = esc(priceMeaning(opts.priceQuery));
+    box.innerHTML = {
+      loading: `<span class="legend-loading">A carregar os preços deste mês…</span>`,
+      ready: `<span class="legend-cheap"><i></i><b>Mais baratos</b></span><span>${meaning}${extra}</span>`,
+      empty: `<span>Sem preços indicativos para este mês.</span>`,
+      error: `<span>Preços indicativos indisponíveis de momento.</span>`,
+    }[state];
+  }
+
+  async function fillPrices(current) {
+    if (!opts.priceQuery) return legend('none');
+    const enabled = [...root.querySelectorAll('.day:not(:disabled)')];
+    if (!enabled.length) return legend('empty');
+    legend('loading');
+    try {
+      const [prices, pricing] = await Promise.all([monthPrices(opts.priceQuery, isoOf(current).slice(0, 7)), loadPricing()]);
+      if (current !== month) return;
+      const amounts = enabled.map(button => prices.get(button.dataset.date)?.amount).filter(Number.isFinite).sort((a, b) => a - b);
+      // Cheapest fifth of the month, only when prices actually differ.
+      const threshold = amounts.length >= 3 && amounts.at(-1) > amounts[0] ? amounts[Math.floor((amounts.length - 1) * 0.2)] : -1;
+      for (const button of enabled) {
+        const amount = prices.get(button.dataset.date)?.amount;
+        const slot = button.querySelector('.day-price');
+        if (!Number.isFinite(amount)) {
+          slot.textContent = '';
+          continue;
+        }
+        slot.textContent = shortPrice(amount, pricing);
+        button.classList.toggle('cheap', amount <= threshold);
+        button.setAttribute('aria-label', `${button.dataset.label} · desde ${fullPrice(amount, pricing)}`);
+      }
+      if (!amounts.length) legend('empty');
+      else legend('ready', ` · desde <b class="legend-min">${esc(fullPrice(amounts[0], pricing))}</b>`);
+    } catch {
+      if (current !== month) return;
+      enabled.forEach(button => { button.querySelector('.day-price').textContent = ''; });
+      legend('error');
+    }
+    opts.onRender?.();
+  }
+
+  function render(focus) {
+    const current = month;
+    const first = (current.getDay() + 6) % 7;
+    const count = new Date(current.getFullYear(), current.getMonth() + 1, 0).getDate();
+    const previousEnd = isoOf(new Date(current.getFullYear(), current.getMonth(), 0));
+    const nextStart = isoOf(new Date(current.getFullYear(), current.getMonth() + 1, 1));
+    root.innerHTML = `<div class="picker-heading">${esc(opts.heading)}</div>
+      <div class="calendar-nav"><button type="button" class="prev-month" aria-label="Mês anterior" ${previousEnd < min ? 'disabled' : ''}>‹</button><strong>${monthText.format(current)}</strong><button type="button" class="next-month" aria-label="Mês seguinte" ${nextStart > max ? 'disabled' : ''}>›</button></div>
+      <div class="calendar-grid${opts.priceQuery ? ' priced' : ''}">${['S', 'T', 'Q', 'Q', 'S', 'S', 'D'].map(day => `<div class="weekday">${day}</div>`).join('')}${'<span></span>'.repeat(first)}${Array.from({ length: count }, (_, i) => dayButton(new Date(current.getFullYear(), current.getMonth(), i + 1))).join('')}</div>
+      <div class="calendar-legend" aria-live="polite"></div>
+      ${opts.foot ? `<div class="picker-foot">${opts.foot}</div>` : ''}`;
+    const move = step => {
+      month = new Date(current.getFullYear(), current.getMonth() + step, 1);
+      render(step < 0 ? '.prev-month' : '.next-month');
+    };
+    root.querySelector('.prev-month').onclick = () => move(-1);
+    root.querySelector('.next-month').onclick = () => move(1);
+    // The next month starts loading as soon as the pointer reaches the arrow.
+    if (opts.priceQuery && nextStart <= max) {
+      const warm = () => prefetchMonth(opts.priceQuery, nextStart.slice(0, 7));
+      root.querySelector('.next-month').addEventListener('pointerenter', warm, { once: true });
+      root.querySelector('.next-month').addEventListener('focus', warm, { once: true });
+    }
+    root.querySelectorAll('[data-date]').forEach(button => {
+      button.onclick = () => opts.onSelect(button.dataset.date);
+    });
+    opts.onRender?.();
+    const target = (focus && root.querySelector(`${focus}:not(:disabled)`)) || root.querySelector('.day.chosen:not(:disabled)') || root.querySelector('.day:not(:disabled)');
+    target?.focus();
+    fillPrices(current);
+  }
+
+  render();
+}
+
+// Stand-alone popover (results page). The home page reuses its own picker panel.
+let popover = null;
+let popoverTrigger = null;
+
+function place() {
+  if (!popover || !popoverTrigger) return;
+  const rect = popoverTrigger.getBoundingClientRect();
+  const width = Math.min(380, innerWidth - 32);
+  popover.style.width = `${width}px`;
+  popover.style.maxHeight = `${Math.min(innerHeight - 32, 600)}px`;
+  popover.style.left = `${Math.max(16, Math.min(rect.right - width, innerWidth - width - 16))}px`;
+  popover.style.top = '0px';
+  const height = popover.getBoundingClientRect().height;
+  const below = rect.bottom + 10;
+  popover.style.top = `${Math.max(16, below + height <= innerHeight - 16 ? below : Math.min(rect.top - height - 10, innerHeight - height - 16))}px`;
+}
+
+export function closeCalendarPopover(restore = false) {
+  if (!popoverTrigger) return;
+  const trigger = popoverTrigger;
+  popoverTrigger = null;
+  trigger.setAttribute('aria-expanded', 'false');
+  popover.hidePopover();
+  if (restore) trigger.focus();
+}
+
+function ensurePopover() {
+  if (popover) return popover;
+  popover = document.createElement('div');
+  popover.className = 'travel-picker calendar-popover';
+  popover.setAttribute('popover', 'manual');
+  document.body.append(popover);
+  document.addEventListener('pointerdown', event => {
+    if (popoverTrigger && !popover.contains(event.target) && !popoverTrigger.contains(event.target)) closeCalendarPopover();
+  });
+  document.addEventListener('keydown', event => {
+    if (popoverTrigger && event.key === 'Escape') {
+      event.preventDefault();
+      closeCalendarPopover(true);
+    }
+  });
+  addEventListener('resize', place);
+  addEventListener('scroll', place, { passive: true });
+  return popover;
+}
+
+export function openCalendarPopover(trigger, opts) {
+  if (popoverTrigger === trigger) return closeCalendarPopover(true);
+  closeCalendarPopover();
+  const panel = ensurePopover();
+  popoverTrigger = trigger;
+  trigger.setAttribute('aria-expanded', 'true');
+  panel.innerHTML = '<div role="dialog" aria-label="Escolher data"><div class="calendar-content"></div></div>';
+  panel.showPopover();
+  mountCalendar(panel.querySelector('.calendar-content'), {
+    ...opts,
+    onRender: place,
+    onSelect: iso => {
+      closeCalendarPopover(true);
+      opts.onSelect(iso);
+    },
+  });
+  place();
+}

@@ -1,0 +1,13 @@
+# Not needed by the Vercel build (static site + api/index.mjs, no npm install).
+node_modules
+.wrangler
+.vinext
+.next
+.sites-runtime
+dist
+dist-vercel
+.dev.vars*
+.env*
+.kiro
+tests
+examples
