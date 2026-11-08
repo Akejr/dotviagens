@@ -16,6 +16,18 @@ const STATUSES = new Set(Object.keys(STATUS_LABEL));
 const nowIso = () => new Date().toISOString();
 let balanceCache = { value: null, until: 0 };
 
+// Whole kwanzas typed in the panel: "270 000", "270.000", "270000 Kz", "-15 000" (a loss).
+// Empty clears the value (null); anything else that is not a number is undefined.
+export function parseKz(value) {
+  if (value == null) return null;
+  if (typeof value === 'number') return Number.isFinite(value) && Number.isSafeInteger(Math.round(value)) ? Math.round(value) : undefined;
+  const text = String(value).replace(/kz|aoa/gi, '').replace(/\s/g, '');
+  if (!text) return null;
+  if (!/^-?\d[\d.,]*$/.test(text)) return undefined;
+  const number = text.includes(',') ? Math.round(Number(text.replace(/\./g, '').replace(',', '.'))) : Number(text.replace(/\./g, ''));
+  return Number.isSafeInteger(number) ? number : undefined;
+}
+
 async function audit(store, session, action, target, details = null) {
   await store.insert('admin_audit', { admin_id: session.customer.id, action, target, details }, { returning: false })
     .catch(error => console.error('audit not saved:', error.message));
@@ -129,12 +141,14 @@ export async function listBookings(request, env, ctx, deps) {
   const status = url.searchParams.get('status');
   const term = searchTerm(url.searchParams.get('q'));
   const params = {
-    select: 'id,reference,status,needs_review,created_at,paid_at,contact_name,contact_phone,contact_email,trip_type,origin,destination,departure_date,return_date,passengers_count,amount_aoa,base_aoa,fee_aoa,markup_bp,price_brl,exchange_rate,payment_method,wiza_status,wiza_service,wiza_status_code,vero_invoice_number,vero_agt_status,vero_error,ticket_pnr',
+    select: 'id,reference,status,needs_review,created_at,paid_at,contact_name,contact_phone,contact_email,trip_type,origin,destination,departure_date,return_date,passengers_count,amount_aoa,profit_aoa,imported,payment_method,wiza_status,wiza_service,wiza_status_code,vero_invoice_number,vero_agt_status,vero_error,ticket_pnr',
     order: 'created_at.desc',
     ...pageParams(url),
   };
   if (STATUSES.has(status)) params.status = `eq.${status}`;
   if (status === 'review') params.needs_review = 'is.true';
+  // Paid sales whose profit the team has not entered yet.
+  if (status === 'no_profit') Object.assign(params, { status: 'in.(paid,ticketed)', profit_aoa: 'is.null' });
   // Quoted values: e-mails contain dots, a reserved character in PostgREST logic filters.
   if (term) params.or = `(reference.ilike."*${term}*",contact_phone.ilike."*${term}*",contact_name.ilike."*${term}*",contact_email.ilike."*${term}*")`;
   const { rows, total } = await db(env, deps.fetcher).selectCount('bookings', params);
@@ -172,6 +186,7 @@ export async function bookingAction(request, env, ctx, deps) {
   let booking = await loadBooking(store, deps.params[0]);
   const reference = booking.reference;
   const result = {};
+  const auditExtra = {};
   const action = String(body.action || '');
 
   switch (action) {
@@ -261,6 +276,18 @@ export async function bookingAction(request, env, ctx, deps) {
       [booking] = await store.update('bookings', { id: `eq.${booking.id}` }, { needs_review: false });
       break;
     }
+    case 'profit': {
+      // What DOT really earned (total paid minus the cost of the ticket), typed by the team
+      // after buying the ticket. This, not the 11% in the price, is the profit in the panel.
+      if (!['paid', 'ticketed'].includes(booking.status)) throw new HttpError(409, 'O lucro só se regista numa compra paga.', 'INVALID_STATE');
+      const profit = parseKz(body.profitAoa);
+      if (profit === undefined) throw new HttpError(400, 'Escreve o lucro em kwanzas, por exemplo 270 000.', 'INVALID_PROFIT');
+      if (profit !== null && Math.abs(profit) > Number(booking.amount_aoa)) throw new HttpError(400, 'O lucro não pode passar do total pago pelo cliente.', 'INVALID_PROFIT');
+      auditExtra.previous = booking.profit_aoa == null ? null : Number(booking.profit_aoa);
+      [booking] = await store.update('bookings', { id: `eq.${booking.id}` }, { profit_aoa: profit });
+      auditExtra.profitAoa = profit;
+      break;
+    }
     default:
       throw new HttpError(400, 'Acção desconhecida.', 'UNKNOWN_ACTION');
   }
@@ -270,6 +297,7 @@ export async function bookingAction(request, env, ctx, deps) {
     ...(body.pnr ? { pnr: String(body.pnr).slice(0, 12) } : {}),
     ...(body.reason ? { reason: String(body.reason).slice(0, 300) } : {}),
     ...(body.note ? { note: String(body.note).slice(0, 300) } : {}),
+    ...auditExtra,
   });
   if (action === 'confirm_manual') await logEvent(store, booking.id, 'admin', 'manual_confirmation', { by: session.customer.phone });
   return json({ ...(await bookingPayload(store, reference, env)), ...result });

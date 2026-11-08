@@ -140,11 +140,13 @@ function legHtml(leg, label) {
   const first = segments[0];
   const last = segments.at(-1);
   const shift = dayShift(first.departure, last.arrival);
-  const flights = segments.map(segment => `${esc(segment.airline)} ${esc(segment.number)}`).join(' · ');
+  const flights = segments.map(segment => [segment.airline, segment.number].filter(Boolean).map(esc).join(' ')).join(' · ');
   const layovers = (leg.layovers || []).slice(0, segments.length - 1).map(layover => `Conexão de ${duration(layover.duration)} em ${esc(city(layover.airport))}`).join(' · ');
+  // Stops and duration can be unknown (a sale registered by hand): show only what is known.
+  const facts = [leg.stops == null ? '' : leg.stops ? plural(leg.stops, 'escala', 'escalas') : 'Directo', leg.duration ? duration(leg.duration) : ''].filter(Boolean).join(' · ');
   return `<div class="sheet-leg"><div class="sheet-leg-head"><b>${label}</b><span>${esc(shortDay(first.departure, true))}</span></div>
     <div class="sheet-leg-route"><div><strong>${esc(clock(first.departure))}</strong><span>${esc(city(first.from))} (${esc(first.from)})</span></div>
-      <div class="sheet-leg-line" aria-hidden="true"><small>${leg.stops ? plural(leg.stops, 'escala', 'escalas') : 'Directo'} · ${duration(leg.duration)}</small></div>
+      <div class="sheet-leg-line" aria-hidden="true"><small>${facts}</small></div>
       <div class="to"><strong>${esc(clock(last.arrival))}${shift > 0 ? `<sup>+${shift}</sup>` : ''}</strong><span>${esc(city(last.to))} (${esc(last.to)})</span></div></div>
     <p class="sheet-leg-flights">${flights}${layovers ? `<br>${layovers}` : ''}</p></div>`;
 }

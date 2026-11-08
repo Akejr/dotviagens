@@ -570,9 +570,11 @@ export async function runSweep(env, ctx, deps) {
     const result = await syncPayment(env, store, booking, 'sweep', ctx, deps).catch(() => booking);
     if (result.status === 'paid') confirmed += 1;
   }
+  // Sales registered by hand (made outside the site) never get an automatic invoice.
   const missing = await store.select('bookings', {
     select: '*',
     status: 'in.(paid,ticketed)',
+    imported: 'is.false',
     vero_invoice_id: 'is.null',
     paid_at: `gte.${new Date(Date.now() - 3 * 86400e3).toISOString()}`,
     limit: 5,

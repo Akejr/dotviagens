@@ -49,6 +49,9 @@ const airportName = code => airportNames[code] || '';
 const backIcon = `<span class="back-icon" aria-hidden="true">${icon('arrowLeft', 15)}</span>`;
 const backButton = (label = 'Voltar') => `<button class="back-link step-back" type="button" data-back>${backIcon}<span class="back-text">${esc(label)}</span></button>`;
 
+// Stops and duration, when known (a sale registered by hand may have neither).
+const legFacts = leg => [leg.stops == null ? '' : leg.stops ? plural(leg.stops, 'escala', 'escalas') : 'Directo', leg.duration ? duration(leg.duration) : ''].filter(Boolean).join(' · ');
+
 // Boarding-pass summary of one leg: airport codes, times, stops and the airline logos.
 function legSummary(leg, label) {
   const first = leg.segments[0];
@@ -56,7 +59,7 @@ function legSummary(leg, label) {
   const shift = dayShift(first.departure, last.arrival);
   return `<div class="trip-leg"><div class="trip-leg-top"><small>${label} · ${esc(shortWeekday.format(new Date(`${dayOf(first.departure)}T12:00:00Z`)))}</small>${airlineMark(leg)}</div>
     <div class="trip-route"><div><b>${esc(first.from)}</b><span>${clock(first.departure)}</span></div>
-      <div class="trip-line" aria-hidden="true"><i></i><em>${leg.stops ? plural(leg.stops, 'escala', 'escalas') : 'Directo'} · ${duration(leg.duration)}</em></div>
+      <div class="trip-line" aria-hidden="true"><i></i><em>${legFacts(leg)}</em></div>
       <div class="to"><b>${esc(last.to)}</b><span>${clock(last.arrival)}${shift > 0 ? `<sup>+${shift}</sup>` : ''}</span></div></div>
     <span class="trip-airlines">${esc(city(first.from))} → ${esc(city(last.to))} · ${esc(airlineNames(leg))}</span></div>`;
 }

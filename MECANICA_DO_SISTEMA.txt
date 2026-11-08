@@ -1,5 +1,10 @@
 DOT VIAGENS — DOCUMENTAÇÃO DO SISTEMA
-Revisão: 8 de Novembro de 2026 (5.ª) — telemóvel: a home responde ao primeiro
+Revisão: 8 de Novembro de 2026 (6.ª) — o lucro de cada venda é inserido no
+painel depois da compra (a taxa de 11% deixou de contar como lucro), vendas
+feitas fora do site registadas à mão, painel legível no telemóvel (tabelas em
+cartões), imagem de partilha nas redes = banner da home, dados de teste
+apagados e primeira venda registada (DOT-261108-00001).
+5.ª revisão: telemóvel: a home responde ao primeiro
 toque (aeroportos populares logo, catálogo completo em segundo plano,
 modulepreload), sem zoom ao tocar nos campos (letra de 16 px), endereços sem
 .html (os antigos redireccionam) e Minhas viagens redesenhada (lista simples
@@ -21,6 +26,9 @@ o site mostra kwanzas: preço final = preço em BRL x câmbio do dia (arredondad
 para cima ao kwanza) + taxa DOT de 11% sobre esse valor (também arredondada
 para cima). O cliente vê só o preço final, sem a taxa à parte e sem o câmbio.
 O câmbio é definido no painel /admin; a taxa é MARKUP_BP em server/rates.mjs.
+A taxa de 11% faz parte do preço, mas NÃO é o lucro: o lucro real de cada
+venda (total pago menos o custo do bilhete) é inserido no painel pela equipa
+depois da compra, e é esse valor que o painel soma como lucro (secção 12).
 O cliente escolhe ida, depois volta compatível, revê o resumo e compra:
 contacto + verificação do telemóvel por SMS (Nsangu), dados dos passageiros
 como numa companhia aérea, pagamento Wiza (Multicaixa Express ou Referência),
@@ -184,7 +192,9 @@ valor convertido = ceil(cêntimos BRL x câmbio / 100);
 taxa DOT = ceil(valor convertido x 1100 / 10000); total = convertido + taxa.
 Exemplo: R$ 10.421 x 225 = 2.344.725 Kz + 257.920 Kz = 2.602.645 Kz.
 O total é o valor cobrado na Wiza e a única linha da factura Vero. A reserva
-guarda base_aoa, fee_aoa e markup_bp para o painel (receita e taxa DOT).
+guarda base_aoa, fee_aoa e markup_bp como registo de como o preço foi
+calculado; o painel não os usa como receita nem como lucro. O lucro é
+bookings.profit_aoa, inserido à mão (secção 12).
 O browser usa as mesmas contas (flight-model.js: withMarkup, totalKz, totalBrl).
 Sem câmbio definido, a compra devolve 503 NO_RATE.
 Mínimo de 100 Kz por cobrança (regra da Wiza).
@@ -357,9 +367,14 @@ por emitir no menu e no título do separador; ponto verde em Pesquisas quando
 há pesquisas novas. O indicador "Ao vivo · há N s" pausa e retoma.
 Não usa Supabase Realtime: o browser continua sem chaves da base de dados.
 Secções:
-- Visão geral: banner com a receita e a taxa DOT do dia, pesquisas,
-  visitantes, compras, bilhetes por emitir, pendentes, para rever, clientes,
-  consultas à SerpApi, pesquisas recentes, câmbio e integrações.
+- Visão geral: banner com as vendas (total pago pelos clientes) e o lucro do
+  dia e de 30 dias, pesquisas, visitantes, compras, bilhetes por emitir,
+  pendentes, para rever, clientes, consultas à SerpApi, pesquisas recentes,
+  câmbio e integrações. O cartão "Vendas e lucro" avisa quantas compras
+  pagas ainda não têm lucro inserido, com ligação para o filtro "Sem lucro".
+  Lucro = soma de bookings.profit_aoa das compras pagas ou emitidas (função
+  admin_overview: profit_today, profit_30d, profit_total, profit_missing);
+  a taxa de 11% não entra nestas contas.
 - Pesquisas: feed ao vivo com UMA linha por pesquisa de cliente (jornada):
   rota, datas, etapas (datas de ida e de volta comparadas, ida/volta escolhidas),
   menor preço visto pelo cliente e quem pesquisou. Ao abrir a linha vêem-se as
@@ -372,14 +387,35 @@ Secções:
   x-vercel-ip-country; o IP vem de cf-connecting-ip ou x-real-ip. Em
   desenvolvimento local o simulador devolve sempre US.
 - Câmbio e preço: definir 1 R$ = X Kz, exemplo com a taxa DOT, histórico.
-- Compras: valor total com a taxa DOT incluída (no detalhe: voo convertido +
-  taxa DOT = total cobrado), coluna Pagamento com "Manual · WhatsApp" nas
-  reservas de pagamento manual (o detalhe explica o passo seguinte e a
-  confirmação à mão pede a justificação, por exemplo a transferência
-  recebida), filtros, pesquisa, detalhe completo (itinerário, passageiros com nome
-  no formato APELIDO/NOME TÍTULO, pagamento, factura, SMS, eventos, auditoria) e
-  acções: verificar pagamento, confirmar à mão (com justificação), emitir bilhete
-  (PNR + SMS), emitir/actualizar factura, notas, cancelar, marcar reembolso.
+- Compras: total pago pelo cliente e, por baixo, o lucro inserido ("lucro
+  por inserir" nas compras pagas sem lucro; filtro "Sem lucro"), coluna
+  Pagamento com "Manual · WhatsApp" nas reservas de pagamento manual (o
+  detalhe explica o passo seguinte e a confirmação à mão pede a justificação,
+  por exemplo a transferência recebida) e "Fora do site" nas vendas
+  registadas à mão, filtros, pesquisa, detalhe completo (total pago e lucro,
+  itinerário, passageiros com nome no formato APELIDO/NOME TÍTULO, pagamento,
+  factura, SMS, eventos, auditoria) e acções: verificar pagamento, confirmar à
+  mão (com justificação), emitir bilhete (PNR + SMS), inserir/editar lucro,
+  emitir/actualizar factura, notas, cancelar, marcar reembolso.
+  Lucro (acção "profit", POST /api/admin/bookings/<ref>/action com
+  {action:'profit', profitAoa}): só em compras pagas ou emitidas; aceita
+  "270 000", "270.000" ou "270000 Kz", negativo para um prejuízo, vazio para
+  apagar; não pode passar do total pago. Fica na auditoria com o valor
+  anterior (booking.profit).
+  Vendas fora do site (bookings.imported = true): vendas combinadas no
+  privado e registadas à mão (por SQL, com payment_method 'manual'). Não
+  recebem SMS nem factura automática (a verificação de pagamentos ignora-as);
+  a factura pode ser emitida no detalhe. Os dados do passaporte podem ficar
+  vazios (as colunas aceitam NULL; as compras do site continuam a exigi-los
+  em server/passengers.mjs). price_brl e exchange_rate ficam a 0.
+  Primeiro registo: DOT-261108-00001, venda fora do site registada à mão a
+  8/11/2026 (bilhete emitido, sem PNR registado; o PNR pode ser acrescentado
+  em Editar bilhete sem enviar SMS).
+- Telemóvel (até 700 px): todas as tabelas do painel passam a cartões, um
+  por linha, com o nome da coluna por cima de cada valor (data-label posto
+  em admin.js a partir do cabeçalho); em Compras o cartão mostra referência e
+  estado, cliente e total, viagem, pagamento e factura. Sem deslocamento
+  horizontal de 360 a 390 px.
 - Utilizadores: tornar/retirar admin, bloquear (termina as sessões).
 - SMS: saldo Nsangu, histórico e estado de cada mensagem.
 - Auditoria: todas as alterações feitas no painel (admin_audit).
@@ -405,7 +441,17 @@ Migrações (aplicar por ordem, uma vez, pelo MCP do Supabase ou no SQL Editor):
    bookings.payment_method ('wiza' por defeito ou 'manual'). As reservas
    antigas ficaram 'wiza'. Uma reserva manual que inicia a cobrança Wiza
    passa a 'wiza'.
-As quatro estão aplicadas no projecto ycbmqytyfdkrpxvjcblk.
+5. supabase/migrations/20261108191510_dot_viagens_profit.sql:
+   bookings.profit_aoa (lucro inserido no painel; |lucro| <= total pago) e
+   bookings.imported (venda fora do site); booking_passengers aceita NULL
+   na data de nascimento, nacionalidade e passaporte; admin_overview passa a
+   devolver profit_today, profit_30d, profit_total e profit_missing (já não
+   devolve fees_*), e invoices_missing ignora as vendas fora do site.
+As cinco estão aplicadas no projecto ycbmqytyfdkrpxvjcblk.
+Dados de teste apagados a 8/11/2026 (reservas, passageiros, eventos de
+pagamento, SMS, pesquisas, auditoria e códigos OTP; booking_ref_seq voltou a
+1). Ficaram a conta de administrador, as sessões, o câmbio e o cache do
+calendário.
 RLS activo em todas, sem políticas: anon e authenticated não acedem a nada.
 Desde 30/10/2026 o Supabase não concede acesso automático a tabelas novas; a
 migração concede ao service_role apenas select/insert/update/delete e execute.
@@ -460,7 +506,8 @@ tests/*.test.mjs: contratos, tokens, preços, cache, validação e filtros.
 public/assets/: logo, paisagens e arte de bilhete; não é preciso regenerar.
 Versões optimizadas usadas pelo site: assets/hero/*.jpg (1280–1920 px + 960 px),
 banner-passaporte-dot.jpg (+ -960), logo-dot-320.png, boarding-tickets-900.webp
-(PNG de reserva), og-dot-viagens.jpg (1200×630, partilha). Os PNG originais
+(PNG de reserva), og-banner-passaporte.jpg (1200×630, partilha nas redes,
+secção 17A). Os PNG originais
 grandes ficam no repositório mas não são publicados (lista SOURCE_ONLY em
 scripts/vercel-build.mjs).
 
@@ -624,7 +671,18 @@ kwanzas, bilhetes de avião com Multicaixa Express.
 Home (/):
 - title "Passagens aéreas baratas em kwanzas | DOT Viagens Angola", meta
   description, canonical, hreflang pt-AO e x-default, robots com
-  max-image-preview:large, Open Graph e Twitter com assets/og-dot-viagens.jpg.
+  max-image-preview:large, Open Graph e Twitter com assets/og-banner-passaporte.jpg.
+- Imagem de partilha (WhatsApp, Facebook, LinkedIn, X): o banner da home
+  ("O destino muda. A moeda continua a tua.", mão com passaporte e bilhete
+  DOT) em 1200×630, ~150 KB. Feita a partir de banner-passaporte-dot.png: a
+  arte sem o texto (fundo reconstruído), à escala que enche a altura, e o
+  mesmo texto por cima (Manrope e DM Sans), porque o banner (2,6:1) seria
+  cortado no formato das redes (1,91:1). Usada também em /blog e no artigo
+  sobre pagamentos (SHARE_IMAGE em content/blog/articles.mjs). Ao mudar a
+  imagem, usar um nome de ficheiro novo: as redes guardam a antiga pelo
+  endereço. Depois de publicar, pedir uma leitura nova no Facebook
+  (developers.facebook.com/tools/debug, "Scrape Again") e no LinkedIn
+  (linkedin.com/post-inspector); as mensagens já enviadas mantêm a antiga.
 - H1: o slogan "O mundo à tua espera." (hero como no desenho original). As
   palavras-chave estão no title, na descrição e nas perguntas frequentes.
 - Dados estruturados JSON-LD: TravelAgency (contacto WhatsApp, Luanda, AOA,
@@ -683,7 +741,8 @@ Testes automáticos do projecto: 14 (pesquisa, tokens, preços, cache, validaç�
 filtros). O fluxo de compra, OTP, pagamentos, callbacks, factura, taxa DOT,
 calendário (incluindo o cache partilhado), pagamento manual (WhatsApp),
 jornadas de pesquisa e painel ao vivo foi validado com fornecedores
-simulados (42 verificações) e no browser
+simulados (43 verificações, incluindo o lucro inserido e as vendas fora do
+site) e no browser
 (desktop e telemóvel 320–390 px), mais uma consulta real ao calendário da
 SerpApi; o adaptador da Vercel (api/index.mjs), o build, as rotas e os
 redireccionamentos do vercel.json, a primeira visita com rede lenta, a

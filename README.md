@@ -55,6 +55,7 @@ Supabase (já aplicadas em `ycbmqytyfdkrpxvjcblk`):
 2. `20261107214259_dot_viagens_live_pricing.sql`
 3. `20261107233029_dot_viagens_calendar_cache.sql` (cache partilhado do calendário)
 4. `20261108031554_dot_viagens_manual_payment.sql` (pagamento manual pelo WhatsApp)
+5. `20261108191510_dot_viagens_profit.sql` (lucro inserido no painel e vendas fora do site)
 
 ## Blog
 

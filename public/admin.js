@@ -38,13 +38,17 @@ const STATUS = {
   cancelled: 'Cancelada',
   refunded: 'Reembolsada',
 };
-const FILTERS = [['', 'Todas'], ['paid', 'Por emitir'], ['pending_payment', 'Pendentes'], ['ticketed', 'Emitidas'], ['payment_failed', 'Falhadas'], ['review', 'Para rever'], ['expired', 'Expiradas'], ['cancelled', 'Canceladas'], ['refunded', 'Reembolsadas']];
+const FILTERS = [['', 'Todas'], ['paid', 'Por emitir'], ['pending_payment', 'Pendentes'], ['ticketed', 'Emitidas'], ['no_profit', 'Sem lucro'], ['payment_failed', 'Falhadas'], ['review', 'Para rever'], ['expired', 'Expiradas'], ['cancelled', 'Canceladas'], ['refunded', 'Reembolsadas']];
 const KIND = { view: 'Ida · data escolhida', prefetch: 'Ida · data vizinha', return: 'Volta · data escolhida', 'return-prefetch': 'Volta · data vizinha', calendar: 'Calendário de preços' };
 const SMS_STATUS = { queued: 'Em fila', sent: 'Enviada', delivered: 'Entregue', undelivered: 'Não entregue', failed: 'Falhou', expired: 'Expirou' };
 const SMS_PURPOSE = { otp: 'Código de acesso', payment_confirmed: 'Pagamento confirmado', ticket_issued: 'Bilhete emitido', booking_cancelled: 'Cancelamento' };
 const SERVICE = { gpo: 'Multicaixa Express', reference: 'Referência' };
-// Payment column: the Wiza method, or "Manual · WhatsApp" when the customer chose to pay with the DOT team.
-const paymentMethodLabel = row => (row.payment_method === 'manual' ? 'Manual · WhatsApp' : SERVICE[row.wiza_service] || row.wiza_service || '—');
+// Payment column: the Wiza method, "Manual · WhatsApp" when the customer chose to pay with the DOT team,
+// or "Fora do site" for a sale made privately and registered by hand.
+const paymentMethodLabel = row => (row.imported ? 'Fora do site' : row.payment_method === 'manual' ? 'Manual · WhatsApp' : SERVICE[row.wiza_service] || row.wiza_service || '—');
+const PAID = ['paid', 'ticketed'];
+// Profit typed by the team after the purchase (null until then).
+const hasProfit = row => row.profit_aoa !== null && row.profit_aoa !== undefined;
 const AUDIT = {
   'rate.set': 'Câmbio definido',
   'booking.recheck': 'Pagamento verificado',
@@ -55,6 +59,8 @@ const AUDIT = {
   'booking.invoice': 'Factura emitida/actualizada',
   'booking.note': 'Notas editadas',
   'booking.clear_review': 'Revisão concluída',
+  'booking.profit': 'Lucro registado',
+  'booking.import': 'Venda registada à mão',
   'customer.update': 'Utilizador alterado',
   'system.sweep': 'Verificação de pagamentos',
 };
@@ -396,7 +402,20 @@ const kpi = (glyph, label, value, sub, href = '', extra = '') => {
   return `<${tag} class="kpi ${extra}"${href ? ` href="${href}"` : ''}><span class="kpi-icon">${icon(glyph, 21)}</span><small>${esc(label)}</small><strong>${esc(value)}</strong><span>${esc(sub)}</span></${tag}>`;
 };
 
-const table = (head, rows, empty) => `<div class="table-wrap"><table class="data-table"><thead><tr>${head}</tr></thead><tbody>${rows || `<tr><td class="empty" colspan="12">${esc(empty)}</td></tr>`}</tbody></table></div>`;
+const table = (head, rows, empty, cls = '') => `<div class="table-wrap${cls ? ` ${cls}` : ''}"><table class="data-table"><thead><tr>${head}</tr></thead><tbody>${rows || `<tr><td class="empty" colspan="12">${esc(empty)}</td></tr>`}</tbody></table></div>`;
+
+// Phones (admin.css): each table row becomes a card and each cell shows its column name,
+// taken here from the table header, so nothing needs horizontal scrolling.
+function labelCells(scope) {
+  scope.querySelectorAll('table.data-table:not([data-labels])').forEach(element => {
+    const labels = [...element.querySelectorAll('thead th')].map(th => th.textContent.trim());
+    element.querySelectorAll('tbody tr').forEach(row => [...row.cells].forEach((cell, index) => {
+      if (labels[index] && cell.colSpan === 1) cell.dataset.label = labels[index];
+    }));
+    element.dataset.labels = '';
+  });
+}
+new MutationObserver(() => labelCells(root)).observe(root, { childList: true, subtree: true });
 
 function pager(total, offset, limit, base) {
   if (total <= limit) return `<div class="pager"><span>${plural(total, 'registo', 'registos')}</span></div>`;
@@ -467,8 +486,8 @@ async function overviewView(params, ctx) {
         ${s.needs_review ? `<a class="hero-chip warn" href="#bookings?status=review">${icon('alert', 15)} ${plural(s.needs_review, 'pagamento para rever', 'pagamentos para rever')}</a>` : ''}
         <a class="hero-chip" href="#rates">${icon('coins', 15)} ${data.rate ? `1 R$ = ${fmtRate(data.rate.rate)} Kz` : 'Câmbio por definir'}</a>
       </div></div>
-      <div class="hero-stats"><div><small>Receita hoje</small><strong>${formatKz(s.revenue_today)}</strong><span>${formatKz(s.revenue_30d)} em 30 dias</span></div>
-        <div><small>Taxa DOT hoje · ${pct(markupBp)}</small><strong>${formatKz(s.fees_today)}</strong><span>${formatKz(s.fees_30d)} em 30 dias</span></div></div></section>
+      <div class="hero-stats"><div><small>Vendas hoje</small><strong>${formatKz(s.revenue_today)}</strong><span>${formatKz(s.revenue_30d)} em 30 dias</span></div>
+        <div><small>Lucro hoje</small><strong>${formatKz(s.profit_today)}</strong><span>${formatKz(s.profit_30d)} em 30 dias</span></div></div></section>
     <div class="kpi-grid cols-4">
       ${kpi('activity', 'Pesquisas hoje', fmtNumber(s.searches_today), `${fmtNumber(s.searches_hour)} na última hora`, '#searches')}
       ${kpi('users', 'Visitantes hoje', fmtNumber(s.visitors_today), plural(s.searches_7d, 'pesquisa em 7 dias', 'pesquisas em 7 dias'))}
@@ -483,9 +502,10 @@ async function overviewView(params, ctx) {
         ${activityList(recent.journeys || [])}</div>
         <div class="admin-card"><h2>${hIcon('settings')} Integrações</h2><p>Configuradas no ambiente do Worker.</p>${integrationList(data.integrations, data.sms)}</div></div>
       <div>${rateCard(data.rate, data.today)}
-        <div class="admin-card"><h2>${hIcon('wallet')} Receita e taxa DOT</h2><p>Compras pagas ou emitidas. A taxa DOT já está incluída no total.</p>
-          <div class="money-rows"><div><span>30 dias</span><strong>${formatKz(s.revenue_30d)}</strong><small>dos quais taxa DOT ${formatKz(s.fees_30d)}</small></div>
-            <div><span>Desde o início</span><strong>${formatKz(s.revenue_total)}</strong><small>dos quais taxa DOT ${formatKz(s.fees_total)}</small></div></div>
+        <div class="admin-card"><h2>${hIcon('wallet')} Vendas e lucro</h2><p>Compras pagas ou emitidas. O lucro é o valor que a equipa insere em cada compra.</p>
+          <div class="money-rows"><div><span>30 dias</span><strong>${formatKz(s.revenue_30d)}</strong><small>lucro ${formatKz(s.profit_30d)}</small></div>
+            <div><span>Desde o início</span><strong>${formatKz(s.revenue_total)}</strong><small>lucro ${formatKz(s.profit_total)}</small></div></div>
+          ${s.profit_missing ? `<div class="notice" style="margin-top:14px">${icon('wallet', 18)}<div>${plural(s.profit_missing, 'compra paga sem lucro inserido', 'compras pagas sem lucro inserido')}. <a class="link-btn" href="#bookings?status=no_profit">Inserir lucro</a></div></div>` : ''}
           ${s.invoices_missing ? `<div class="notice" style="margin-top:14px">${icon('receipt', 18)}<div>${plural(s.invoices_missing, 'compra paga sem factura', 'compras pagas sem factura')}. Abre a reserva para reemitir.</div></div>` : ''}</div></div></div>`;
 }
 
@@ -657,9 +677,10 @@ async function searchesView(params, ctx) {
 }
 
 // ── Bookings ─────────────────────────────────────────────────────────────────
+// Total paid, and under it the profit entered by the team (or a reminder once the sale is paid).
 const amountCell = row => {
-  const fee = Number(row.fee_aoa) || 0;
-  return `<strong class="kz">${formatKz(row.amount_aoa)}</strong><small>${fee ? `inclui ${formatKz(fee)} de taxa DOT` : `${formatBrl(row.price_brl)} × ${fmtRate(row.exchange_rate)}`}</small>`;
+  const profit = hasProfit(row) ? `<small>lucro ${formatKz(row.profit_aoa)}</small>` : PAID.includes(row.status) ? '<small class="profit-missing">lucro por inserir</small>' : '';
+  return `<strong class="kz">${formatKz(row.amount_aoa)}</strong>${profit}`;
 };
 
 async function bookingsView(params, ctx) {
@@ -685,8 +706,8 @@ async function bookingsView(params, ctx) {
       <td>${esc(city(row.origin))} ${row.trip_type === 'return' ? '⇄' : '→'} ${esc(city(row.destination))}<small>${esc(formatDate(row.departure_date))}${row.return_date ? ` — ${esc(formatDate(row.return_date))}` : ''} · ${plural(row.passengers_count, 'adulto', 'adultos')}</small></td>
       <td class="num">${amountCell(row)}</td>
       <td>${statusBadge(row.status)}${row.needs_review ? '<small class="flag" style="margin-top:6px">Rever</small>' : ''}${row.ticket_pnr ? `<small>PNR ${esc(row.ticket_pnr)}</small>` : ''}</td>
-      <td>${esc(paymentMethodLabel(row))}<small>${row.payment_method === 'manual' && !row.wiza_status ? 'combinar no WhatsApp' : `${esc(row.wiza_status || '')}${row.wiza_status_code ? ` · ${esc(row.wiza_status_code)}` : ''}`}</small></td>
-      <td>${row.vero_invoice_number ? esc(row.vero_invoice_number) : row.vero_error ? '<span class="no-dot">Erro</span>' : '—'}<small>${esc(row.vero_agt_status || '')}</small></td></tr>`).join(''), 'Nenhuma compra encontrada.')}
+      <td>${esc(paymentMethodLabel(row))}<small>${row.imported ? 'registada à mão' : row.payment_method === 'manual' && !row.wiza_status ? 'combinar no WhatsApp' : `${esc(row.wiza_status || '')}${row.wiza_status_code ? ` · ${esc(row.wiza_status_code)}` : ''}`}</small></td>
+      <td>${row.vero_invoice_number ? esc(row.vero_invoice_number) : row.vero_error ? '<span class="no-dot">Erro</span>' : '—'}<small>${esc(row.vero_agt_status || '')}</small></td></tr>`).join(''), 'Nenhuma compra encontrada.', 'bookings-table')}
     ${pager(data.total, offset, limit, base)}`;
   $('#search').onsubmit = event => {
     event.preventDefault();
@@ -704,10 +725,10 @@ const airlineFormat = p => `${asciiName(p.surname)}/${asciiName(p.given_names)} 
 
 function legDetail(leg, label) {
   if (!leg?.segments?.length) return '';
-  return `<div class="leg-block"><h3 class="leg-title">${label} · ${esc(leg.airline)} · ${esc(duration(leg.duration))} · ${leg.stops ? plural(leg.stops, 'escala', 'escalas') : 'Directo'}</h3>
-    ${table('<th>Voo</th><th>De</th><th>Para</th><th>Duração</th>', leg.segments.map((segment, index) => `<tr><td class="mono"><strong>${esc(segment.number)}</strong><small>${esc(segment.airline)}</small></td>
-      <td>${esc(city(segment.from))}<small>${esc(segment.departure)}</small></td><td>${esc(city(segment.to))}<small>${esc(segment.arrival)}</small></td>
-      <td>${esc(duration(segment.duration))}${leg.layovers?.[index] ? `<small>Conexão ${esc(duration(leg.layovers[index].duration))} em ${esc(leg.layovers[index].airport)}</small>` : ''}</td></tr>`).join(''), '')}</div>`;
+  return `<div class="leg-block"><h3 class="leg-title">${[label, esc(leg.airline), ...legFacts(leg)].join(' · ')}</h3>
+    ${table('<th>Voo</th><th>De</th><th>Para</th><th>Duração</th>', leg.segments.map((segment, index) => `<tr><td class="mono"><strong>${esc(segment.number || '—')}</strong><small>${esc(segment.airline)}</small></td>
+      <td>${esc(city(segment.from))}<small>${esc(segment.departure || '')}</small></td><td>${esc(city(segment.to))}<small>${esc(segment.arrival || '')}</small></td>
+      <td>${segment.duration ? esc(duration(segment.duration)) : '—'}${leg.layovers?.[index] ? `<small>Conexão ${esc(duration(leg.layovers[index].duration))} em ${esc(leg.layovers[index].airport)}</small>` : ''}</td></tr>`).join(''), '')}</div>`;
 }
 
 async function bookingView(reference, ctx) {
@@ -718,13 +739,15 @@ async function bookingView(reference, ctx) {
   renderBooking(data);
 }
 
+// Total paid by the customer and the profit the team entered for this sale.
 function amountBox(b) {
-  const fee = Number(b.fee_aoa) || 0;
-  const base = b.base_aoa != null ? Number(b.base_aoa) : Number(b.amount_aoa) - fee;
-  return `<div class="amount-box"><small>Total cobrado ao cliente</small><strong>${formatKz(b.amount_aoa)}</strong><dl>
-    <div><dt>Voo · ${formatBrl(b.price_brl)} × ${fmtRate(b.exchange_rate)} Kz</dt><dd>${formatKz(base)}</dd></div>
-    <div><dt>Taxa DOT${b.markup_bp ? ` (${pct(b.markup_bp)})` : ''}</dt><dd>${fee ? formatKz(fee) : 'Sem taxa'}</dd></div></dl></div>`;
+  const profit = hasProfit(b) ? formatKz(b.profit_aoa) : PAID.includes(b.status) ? '<span class="profit-missing">Por inserir</span>' : '—';
+  return `<div class="amount-box"><small>Total pago pelo cliente</small><strong>${formatKz(b.amount_aoa)}</strong><dl>
+    <div><dt>Lucro DOT</dt><dd>${profit}</dd></div></dl></div>`;
 }
+
+// Times, stops and duration can be unknown in a sale registered by hand.
+const legFacts = leg => [leg.stops == null ? '' : leg.stops ? plural(leg.stops, 'escala', 'escalas') : 'Directo', leg.duration ? duration(leg.duration) : ''].filter(Boolean);
 
 function renderBooking(data) {
   const b = data.booking;
@@ -735,15 +758,16 @@ function renderBooking(data) {
   const actions = [
     b.wiza_payment_id && open ? button('recheck', 'refresh', 'Verificar pagamento') : '',
     open ? button('confirm_manual', 'checkCircle', 'Confirmar pagamento à mão') : '',
-    paid ? button('ticket', 'ticket', b.status === 'ticketed' ? 'Editar bilhete' : 'Emitir bilhete', 'primary-sm') : '',
+    paid ? button('ticket', 'ticket', b.status === 'ticketed' ? 'Editar bilhete' : 'Emitir bilhete', b.status === 'paid' ? 'primary-sm' : '') : '',
+    paid ? button('profit', 'wallet', hasProfit(b) ? 'Editar lucro' : 'Inserir lucro', !hasProfit(b) && b.status === 'ticketed' ? 'primary-sm' : '') : '',
     paid ? button('invoice', 'receipt', b.vero_invoice_id ? 'Actualizar factura' : 'Emitir factura') : '',
     b.needs_review ? button('clear_review', 'check', 'Marcar como revisto') : '',
     button('note', 'file', 'Notas internas'),
     ['paid', 'ticketed', 'cancelled'].includes(b.status) ? button('refund', 'wallet', 'Marcar reembolsado') : '',
     !['cancelled', 'refunded'].includes(b.status) ? button('cancel', 'x', 'Cancelar reserva', 'danger') : '',
   ].join('');
-  view().innerHTML = `<div class="admin-card"><div class="detail-head"><div><h2>${esc(b.reference)} ${statusBadge(b.status)} ${b.needs_review ? `<span class="flag">${icon('alert', 14)} Para rever</span>` : ''}</h2>
-      <p>Criada em ${esc(formatDateTime(b.created_at))}${b.paid_at ? ` · paga em ${esc(formatDateTime(b.paid_at))}` : ''}${b.ticketed_at ? ` · emitida em ${esc(formatDateTime(b.ticketed_at))}` : ''}</p>
+  view().innerHTML = `<div class="admin-card"><div class="detail-head"><div><h2>${esc(b.reference)} ${statusBadge(b.status)} ${b.needs_review ? `<span class="flag">${icon('alert', 14)} Para rever</span>` : ''}${b.imported ? `<span class="flag">${icon('file', 14)} Venda fora do site</span>` : ''}</h2>
+      <p>${b.imported ? 'Registada à mão em' : 'Criada em'} ${esc(formatDateTime(b.created_at))}${b.paid_at ? ` · paga em ${esc(formatDateTime(b.paid_at))}` : ''}${b.ticketed_at ? ` · emitida em ${esc(formatDateTime(b.ticketed_at))}` : ''}</p>
       <div class="action-bar" style="margin-top:16px">${actions}</div></div>
       ${amountBox(b)}</div></div>
     <div class="admin-grid"><div>
@@ -753,18 +777,19 @@ function renderBooking(data) {
       <div class="admin-card"><h2>${hIcon('idCard')} Passageiros</h2><p>Dados tal como no passaporte. Copia o nome no formato das companhias aéreas.</p>
         ${b.booking_passengers.map((p, index) => `<div class="passenger-line"><div class="kv">
           <div><small>Passageiro ${index + 1}</small><strong>${p.title === 'MR' ? 'Sr.' : 'Sra.'} ${esc(p.given_names)} ${esc(p.surname)}</strong></div>
-          <div><small>Nascimento</small><strong>${esc(formatDate(p.birth_date))}</strong></div>
-          <div><small>Nacionalidade</small><strong>${esc(countryName(p.nationality))}</strong></div>
-          <div><small>Passaporte</small><strong class="mono">${esc(p.document_number)}</strong></div>
-          <div><small>País emissor</small><strong>${esc(countryName(p.document_country))}</strong></div>
-          <div><small>Validade</small><strong>${esc(formatDate(p.document_expiry))}</strong></div></div>
+          <div><small>Nascimento</small><strong>${esc(formatDate(p.birth_date) || '—')}</strong></div>
+          <div><small>Nacionalidade</small><strong>${p.nationality ? esc(countryName(p.nationality)) : '—'}</strong></div>
+          <div><small>Passaporte</small><strong class="mono">${esc(p.document_number || '—')}</strong></div>
+          <div><small>País emissor</small><strong>${p.document_country ? esc(countryName(p.document_country)) : '—'}</strong></div>
+          <div><small>Validade</small><strong>${esc(formatDate(p.document_expiry) || '—')}</strong></div></div>
           <button class="btn-sm" type="button" data-copy="${esc(airlineFormat(p))}" title="Copiar ${esc(airlineFormat(p))}">${icon('file', 14)} Copiar nome</button></div>`).join('')}</div>
       <div class="admin-card"><h2>${hIcon('activity')} Eventos do pagamento</h2><p>Criação, consultas à Wiza, callbacks e confirmações.</p>
         ${table('<th>Quando</th><th>Origem</th><th>Resultado</th><th>Detalhes</th>', data.events.map(event => `<tr><td>${esc(formatDateTime(event.created_at))}</td><td>${esc(event.source)}</td><td><strong>${esc(event.outcome || '')}</strong></td><td><div class="code-box">${esc(JSON.stringify(event.payload || {}, null, 1))}</div></td></tr>`).join(''), 'Sem eventos.')}</div>
     </div><div>
-      <div class="admin-card"><h2>${hIcon('user')} Contacto</h2><div class="kv"><div><small>Nome</small><strong>${esc(b.contact_name)}</strong></div><div><small>Telemóvel</small><strong>${esc(formatPhone(b.contact_phone))}</strong></div><div><small>E-mail</small><strong>${esc(b.contact_email)}</strong></div><div><small>Conta</small><strong>${esc(b.customer?.name || '—')}</strong></div></div></div>
-      <div class="admin-card"><h2>${hIcon('wallet')} Pagamento · ${b.payment_method === 'manual' ? 'Manual (WhatsApp)' : 'Wiza'}</h2>
-        ${b.payment_method === 'manual' && open ? `<div class="notice" style="margin:0 0 12px">${icon('message', 18)}<div>O cliente escolheu <b>pagamento manual</b> e foi para o WhatsApp da DOT com a referência ${esc(b.reference)}. Depois de receberes o pagamento, usa <b>Confirmar pagamento à mão</b>: o cliente recebe o SMS e a factura é emitida.</div></div>` : ''}<div class="kv">
+      <div class="admin-card"><h2>${hIcon('user')} Contacto</h2><div class="kv"><div><small>Nome</small><strong>${esc(b.contact_name)}</strong></div><div><small>Telemóvel</small><strong>${esc(formatPhone(b.contact_phone))}</strong></div><div><small>E-mail</small><strong>${esc(b.contact_email || '—')}</strong></div><div><small>Conta</small><strong>${esc(b.customer?.name || '—')}</strong></div></div></div>
+      <div class="admin-card"><h2>${hIcon('wallet')} Pagamento · ${b.imported ? 'Fora do site' : b.payment_method === 'manual' ? 'Manual (WhatsApp)' : 'Wiza'}</h2>
+        ${b.imported ? `<div class="notice" style="margin:0 0 12px">${icon('info', 18)}<div>Venda feita fora do site e registada à mão. O sistema não enviou SMS nem emite factura automática; podes emitir a factura com o botão <b>Emitir factura</b>.</div></div>` : ''}
+        ${b.payment_method === 'manual' && open ? `<div class="notice" style="margin:0 0 12px">${icon('message', 18)}<div>O cliente escolheu <b>pagamento manual</b> e foi para o WhatsApp da DOT com a referência ${esc(b.reference)}. Depois de receberes o pagamento, usa <b>Confirmar pagamento à mão</b>: o cliente recebe o SMS e a factura é emitida.</div></div>` : ''}${b.imported ? `<div class="kv"><div><small>Método</small><strong>${esc(paymentMethodLabel(b))}</strong></div><div><small>Pago</small><strong>${esc(formatDateTime(b.paid_at) || '—')}</strong></div></div>` : `<div class="kv">
         <div><small>Estado</small><strong>${esc(b.wiza_status || '—')}${b.wiza_status_code ? ` · ${esc(b.wiza_status_code)}` : ''}</strong></div>
         <div><small>Método</small><strong>${esc(paymentMethodLabel(b))}</strong></div>
         <div><small>Tentativas</small><strong>${esc(b.payment_attempts)}</strong></div>
@@ -774,7 +799,7 @@ function renderBooking(data) {
         <div><small>Última consulta</small><strong>${esc(formatDateTime(b.wiza_checked_at) || '—')}</strong></div>
         <div><small>Janela de 5 min</small><strong>${b.wiza_window_closed ? 'Fechada (só callback)' : 'Aberta'}</strong></div>
         ${b.wiza_paid_payment_id ? `<div><small>Cobrança paga</small><strong class="mono">${esc(b.wiza_paid_payment_id)}</strong></div>` : ''}
-        ${b.wiza_previous_ids?.length ? `<div><small>Cobranças anteriores</small><strong class="mono">${b.wiza_previous_ids.map(esc).join('<br>')}</strong></div>` : ''}</div>
+        ${b.wiza_previous_ids?.length ? `<div><small>Cobranças anteriores</small><strong class="mono">${b.wiza_previous_ids.map(esc).join('<br>')}</strong></div>` : ''}</div>`}
         ${b.needs_review ? `<div class="notice" style="margin-top:12px">${icon('alert', 18)}<div>Há um aviso da Wiza que não foi possível confirmar automaticamente (ou um possível pagamento em duplicado). Confirma no painel da Wiza e vê os eventos.</div></div>` : ''}</div>
       <div class="admin-card"><h2>${hIcon('receipt')} Factura · Vero</h2><div class="kv">
         <div><small>Número</small><strong>${esc(b.vero_invoice_number || '—')}</strong></div>
@@ -782,7 +807,7 @@ function renderBooking(data) {
         <div><small>Cliente fiscal</small><strong>${b.invoice_nif ? `${esc(b.invoice_name)} · NIF ${esc(b.invoice_nif)}` : 'Consumidor Final'}</strong></div>
         ${b.vero_pdf_url && !data.invoicesSandbox ? `<div><small>Documento</small><strong><a class="link-btn" href="${esc(b.vero_pdf_url)}" target="_blank" rel="noopener">${icon('download', 14)} PDF</a></strong></div>` : ''}</div>
         ${b.vero_error ? `<div class="notice error" style="margin-top:12px">${icon('alert', 18)}<div>Último erro: <span class="mono">${esc(b.vero_error)}</span>. A venda mantém-se; podes reemitir.</div></div>` : ''}</div>
-      <div class="admin-card"><h2>${hIcon('ticket')} Bilhete</h2>${b.ticket_pnr ? `<div class="kv"><div><small>PNR</small><strong class="mono">${esc(b.ticket_pnr)}</strong></div><div><small>Números do bilhete</small><strong>${esc(b.ticket_numbers || '—')}</strong></div>${b.ticket_notes ? `<div><small>Notas para o cliente</small><strong>${esc(b.ticket_notes)}</strong></div>` : ''}</div>` : `<p class="card-sub">${paid ? 'Compra paga. Emite o bilhete na companhia ou no consolidador e regista aqui o PNR para o cliente receber o SMS.' : 'O bilhete só é emitido depois do pagamento.'}</p>`}
+      <div class="admin-card"><h2>${hIcon('ticket')} Bilhete</h2>${b.ticket_pnr ? `<div class="kv"><div><small>PNR</small><strong class="mono">${esc(b.ticket_pnr)}</strong></div><div><small>Números do bilhete</small><strong>${esc(b.ticket_numbers || '—')}</strong></div>${b.ticket_notes ? `<div><small>Notas para o cliente</small><strong>${esc(b.ticket_notes)}</strong></div>` : ''}</div>` : `<p class="card-sub">${b.status === 'ticketed' ? 'Bilhete emitido sem código da reserva registado. Usa Editar bilhete para o registar (podes não enviar SMS).' : paid ? 'Compra paga. Emite o bilhete na companhia ou no consolidador e regista aqui o PNR para o cliente receber o SMS.' : 'O bilhete só é emitido depois do pagamento.'}</p>`}
         ${b.cancel_reason ? `<div class="notice" style="margin-top:12px">${icon('info', 18)}<div>Cancelada: ${esc(b.cancel_reason)}</div></div>` : ''}</div>
       <div class="admin-card"><h2>${hIcon('message')} SMS desta reserva</h2>${table('<th>Quando</th><th>Mensagem</th><th>Estado</th>', data.sms.map(sms => `<tr><td>${esc(formatDateTime(sms.created_at))}</td><td>${esc(SMS_PURPOSE[sms.purpose] || sms.purpose || sms.category)}<small>remetente ${esc(sms.sender || '—')}</small></td><td>${esc(SMS_STATUS[sms.status] || sms.status || '—')}${sms.error ? `<small>${esc(sms.error)}</small>` : ''}</td></tr>`).join(''), 'Nenhum SMS enviado.')}</div>
       <div class="admin-card"><h2>${hIcon('file')} Notas internas</h2><p class="card-sub" style="white-space:pre-wrap">${esc(b.admin_notes || 'Sem notas.')}</p></div>
@@ -849,6 +874,13 @@ function renderBooking(data) {
           fields: '<label class="form-field"><span>Como foi reembolsado</span><textarea name="note" required maxlength="300" placeholder="Ex.: transferência IBAN em 12/11, comprovativo 4581"></textarea></label>',
           confirm: 'Registar reembolso',
           body: form => ({ action, note: form.get('note') }),
+        },
+        profit: {
+          title: hasProfit(b) ? 'Editar lucro' : 'Inserir lucro',
+          text: `Quanto a DOT ganhou nesta venda: o total pago pelo cliente (${formatKz(b.amount_aoa)}) menos o custo do bilhete. Este valor conta como lucro no painel.`,
+          fields: `<label class="form-field"><span>Lucro em kwanzas</span><input name="profit" inputmode="numeric" autocomplete="off" required maxlength="16" placeholder="Ex.: 270 000" value="${hasProfit(b) ? esc(fmtNumber(b.profit_aoa)) : ''}"></label>`,
+          confirm: 'Guardar lucro',
+          body: form => ({ action, profitAoa: String(form.get('profit') || '') }),
         },
         note: {
           title: 'Notas internas',
