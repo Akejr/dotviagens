@@ -430,6 +430,10 @@ Web Crypto. vercel.json:
   */10 * * * * (mínimo: uma vez por minuto). Entretanto, os pagamentos por
   referência confirmam-se pelo callback da Wiza, pela página do cliente e pelo
   botão de verificação no painel.
+Plano: o Hobby (grátis) é só para uso pessoal não comercial; um site que
+recebe pagamentos precisa do plano Pro (regras de uso da Vercel:
+https://vercel.com/docs/limits/fair-use-guidelines). O cron diário funciona
+nos dois planos; no Pro, mudar o schedule para */10 * * * * no vercel.json.
 Passos:
 1. Vercel → Add New → Project → importar Akejr/dotviagens. Não mudar as
    opções de build (vêm do vercel.json).

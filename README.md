@@ -39,6 +39,10 @@ para todos os pedidos `/api/*`. Não instala dependências npm.
 O cron diário (`vercel.json`) chama `/api/internal/sweep` com
 `Authorization: Bearer CRON_SECRET` para verificar pagamentos pendentes.
 
+Plano: o Hobby da Vercel é só para uso pessoal não comercial; um site que recebe
+pagamentos precisa do Pro ([regras de uso](https://vercel.com/docs/limits/fair-use-guidelines)).
+No Pro, o cron pode passar a `*/10 * * * *`.
+
 ## Base de dados
 
 Aplicar, por ordem, as migrações de `supabase/migrations/` no projecto
