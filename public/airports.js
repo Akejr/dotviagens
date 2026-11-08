@@ -1,2 +1,16 @@
+// Airport catalogue (airports.json: ~9 000 airports, ~170 KB compressed). Loaded once and in the
+// background: no page waits for it to become usable (the home starts with airports-popular.js).
 let promise;
-export function loadAirports(){return promise ||= fetch('/airports.json').then(r=>{if(!r.ok)throw Error('Não foi possível carregar os aeroportos.');return r.json()}).then(rows=>{const names=new Intl.DisplayNames(['pt'],{type:'region'});return rows.map(a=>({...a,country:names.of(a.countryCode)||a.country}))}).catch(e=>{promise=null;throw e})}
+
+// Country names in Portuguese, from the ISO code.
+export function localize(rows) {
+  const names = new Intl.DisplayNames(['pt'], { type: 'region' });
+  return rows.map(a => ({ ...a, country: names.of(a.countryCode) || a.country }));
+}
+
+export function loadAirports() {
+  return promise ||= fetch('/airports.json', { priority: 'low' })
+    .then(r => { if (!r.ok) throw Error('Não foi possível carregar os aeroportos.'); return r.json(); })
+    .then(localize)
+    .catch(e => { promise = null; throw e; });
+}

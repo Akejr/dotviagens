@@ -13,11 +13,17 @@
     { "source": "/api/:path*", "destination": "/api?__path=:path*" },
     { "source": "/admin", "destination": "/admin.html" },
     { "source": "/minhas-viagens", "destination": "/minhas-viagens.html" },
+    { "source": "/compra", "destination": "/compra.html" },
+    { "source": "/resultados", "destination": "/resultados.html" },
     { "source": "/blog", "destination": "/blog/index.html" },
     { "source": "/blog/:slug", "destination": "/blog/:slug.html" }
   ],
   "redirects": [
     { "source": "/home.html", "destination": "/", "permanent": true },
+    { "source": "/admin.html", "destination": "/admin", "permanent": true },
+    { "source": "/minhas-viagens.html", "destination": "/minhas-viagens", "permanent": true },
+    { "source": "/compra.html", "destination": "/compra", "permanent": true },
+    { "source": "/resultados.html", "destination": "/resultados", "permanent": true },
     { "source": "/blog/index", "destination": "/blog", "permanent": true },
     { "source": "/blog/index.html", "destination": "/blog", "permanent": true },
     { "source": "/blog/:slug.html", "destination": "/blog/:slug", "permanent": true },
@@ -48,7 +54,7 @@
       "headers": [{ "key": "Cache-Control", "value": "public, max-age=86400, stale-while-revalidate=604800" }]
     },
     {
-      "source": "/(admin|admin\\.html|compra\\.html|resultados\\.html|minhas-viagens|minhas-viagens\\.html)",
+      "source": "/(admin|admin\\.html|compra|compra\\.html|resultados|resultados\\.html|minhas-viagens|minhas-viagens\\.html)",
       "headers": [{ "key": "X-Robots-Tag", "value": "noindex" }]
     }
   ],

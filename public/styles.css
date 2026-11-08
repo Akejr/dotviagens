@@ -105,3 +105,10 @@ a.account{display:inline-flex;align-items:center}
    On phones (≤760px) the art is hidden: its first <source> is a 1×1 GIF, so nothing is downloaded. */
 .art-picture{display:contents}
 .art-picture>source{display:none}
+/* Phones and tablets: iOS zooms the whole page when a field with text under 16px gets focus.
+   Every field is at least 16px there (the 6-digit code field is bigger already). Taps act at once,
+   without double-tap zoom; pinch zoom still works. */
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%;touch-action:manipulation}
+@media (pointer:coarse),(max-width:760px){
+  input:not([type=checkbox]):not([type=radio]):not([type=range]):not(.otp-input),select,textarea{font-size:16px!important}
+}

@@ -1,139 +1,149 @@
-/* "Minhas viagens": home header and footer, warm hero with the ticket art and
-   boarding-pass cards. Loaded after styles.css, results.css and checkout.css. */
-.trips-page{background:#fff}
+/* Minhas viagens: one centred column. Signed out: one sign-in card. Signed in: two tabs (next / past),
+   one short card per trip and the details in a side panel (a bottom sheet on phones).
+   Loaded after styles.css, results.css and checkout.css. */
+.trips-page{background:#faf9f6}
 .account.active{border-color:#f8b18d;background:#fff7f1;color:#b34b00}
 .account span svg{display:block}
+.trips{max-width:880px;padding:34px 0 90px}
+.trips h1{font-family:Manrope,sans-serif;font-size:34px;font-weight:700;letter-spacing:-1.2px;line-height:1.1;margin:0;color:var(--ink);animation:none}
+.trips-loading{display:grid;place-items:center;min-height:280px}
 
-/* Hero */
-.trips-hero{position:relative;overflow:hidden;display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);align-items:center;gap:24px;min-height:330px;padding:46px 56px 96px;border-radius:30px;background:linear-gradient(115deg,#fff7e8 0%,#fff0e4 58%,#ffe6d5 100%);margin-top:6px}
-.trips-hero:before{content:'';position:absolute;width:560px;height:560px;right:-160px;top:-230px;border-radius:50%;background:radial-gradient(circle,#ffd3a8 0%,#ffd3a800 68%);pointer-events:none}
-.trips-hero>*{position:relative}
-.trips-hero h1{font-size:50px;font-weight:650;letter-spacing:-2.3px;line-height:1.06;margin:14px 0;color:var(--ink)}
-.trips-hero h1 em{font-style:normal;background:var(--brand-gradient);-webkit-background-clip:text;background-clip:text;color:transparent}
-.trips-hero p{font-size:14px;color:#7a6a5c;line-height:1.75;max-width:470px}
-.trips-hero-art{width:min(100%,520px);height:auto;justify-self:end;transform:rotate(-5deg) translateY(8px);filter:drop-shadow(0 26px 40px #a3480026);margin:-24px -14px -44px 0;pointer-events:none;user-select:none}
-.trips-body{position:relative;z-index:2;margin:-62px auto 90px}
-.trips-body>.panel.status-hero{border-radius:24px;box-shadow:0 26px 60px #3a1c0414}
-.trips-body .status-hero .spinner{border-color:#ffe2c3;border-top-color:#f5770c;width:24px;height:24px}
-
-/* Access */
-.trips-login{display:grid;grid-template-columns:minmax(0,1fr) 370px;gap:22px;align-items:start}
-.trips-login .panel{border-radius:24px;border-color:#efe7dc;box-shadow:0 26px 60px #3a1c0414;padding:32px}
-.trips-perks{background:#fff;border:1px solid #efe7dc;border-radius:24px;padding:26px;box-shadow:0 14px 34px #3a1c040b}
-.trips-perks h3{font-size:16px;margin-bottom:16px}
-.perk{display:flex;gap:14px;align-items:flex-start;padding:14px 0;border-top:1px solid #f4ede4}
-.perk:first-of-type{border-top:0;padding-top:2px}
-.perk p{display:flex;flex-direction:column;gap:4px}
-.perk strong{font-size:14px}
-.perk small{font-size:12px;color:#857b70;line-height:1.55}
-.trips-perks .perk-help{font-size:12px;color:#857b70;margin-top:14px}
-.perk-help a{color:#b34b00;font-weight:650}
+/* Signed out */
+.trips-login{max-width:460px;margin:10px auto 0;background:#fff;border:1px solid #efe7dc;border-radius:24px;padding:34px 30px 24px;box-shadow:0 20px 50px #3a1c040d;text-align:center}
+.trips-login-icon,.trips-empty-icon{width:56px;height:56px;margin:0 auto 16px;border-radius:18px;display:grid;place-items:center;color:var(--orange);background:linear-gradient(145deg,#fff7ec,#ffe8d8)}
+.trips-login>p:not(.trips-help){font-size:14px;line-height:1.65;color:#7a7f74;margin:10px auto 22px;max-width:340px}
+.trips-login #otp{text-align:left}
+.trips-login .otp-card{max-width:none}
+.trips-help{font-size:12.5px;color:#8a8f84;margin-top:18px}
+.trips-help a,.sheet-meta a{color:#b34b00;font-weight:650}
 
 /* Signed in */
-.trips-account{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;background:#fff;border:1px solid #efe7dc;border-radius:22px;padding:18px 22px;box-shadow:0 22px 50px #3a1c0412;margin-bottom:34px}
-.trips-user{display:flex;align-items:center;gap:14px;min-width:0}
-.trips-user .avatar{width:50px;height:50px;border-radius:16px;display:grid;place-items:center;flex:none;background:var(--brand-gradient);color:#fff;font-family:Manrope,sans-serif;font-weight:800;font-size:17px;box-shadow:0 10px 22px #ef590030}
-.trips-user strong{display:block;font-family:Manrope,sans-serif;font-size:17px;letter-spacing:-.3px}
-.trips-user span{font-size:12.5px;color:#857b70}
-.trips-actions{display:flex;gap:10px;flex-wrap:wrap}
-.trips-actions .primary{padding:12px 18px;font-size:13px}
-.trips-actions .secondary{display:inline-flex;align-items:center;gap:7px}
-.trips-group+.trips-group{margin-top:38px}
-.group-head{display:flex;align-items:center;gap:10px;margin:0 0 16px}
-.group-head h2{font-size:23px;letter-spacing:-.7px;margin:0}
-.group-head span{font-size:12px;font-weight:700;color:#b34b00;background:#fff1e6;border-radius:20px;padding:3px 10px}
-.group-empty{display:flex;align-items:center;gap:12px;flex-wrap:wrap;border:1px dashed #efcfb2;background:#fffaf5;border-radius:18px;padding:18px 20px;font-size:13px;color:#7a6a5c}
-.group-empty svg{color:var(--orange)}
-.group-empty .link-btn{margin-left:auto}
+.trips-head{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:24px}
+.trips-hello{font-size:14px;font-weight:600;color:#6f6559;margin:0 0 6px}
+.trips-hello span{font-weight:400;color:#9a9e93}
+.trips-head-actions{display:flex;align-items:center;gap:8px}
+.trips-head-actions .primary{min-height:44px;padding:0 18px;border-radius:12px;font-size:13.5px}
+.trips-logout{display:inline-flex;align-items:center;gap:7px;min-height:44px;padding:0 15px;border:1px solid #e9e1d6;border-radius:12px;background:#fff;color:#6f6559;font-size:13.5px;font-weight:600}
+.trips-logout:hover{border-color:#f4b18f;color:#b34b00}
+.trips-tabs{display:inline-flex;gap:4px;padding:4px;margin-bottom:14px;border-radius:14px;background:#f0ebe3}
+.trips-tabs button{display:inline-flex;align-items:center;gap:7px;min-height:38px;padding:0 16px;border:0;border-radius:10px;background:none;font-size:13.5px;font-weight:650;color:#6f6559}
+.trips-tabs button span{font-size:11.5px;font-weight:700;color:#a8957f}
+.trips-tabs button[aria-selected=true]{background:#fff;color:var(--ink);box-shadow:0 2px 8px #3a1c0412}
+.trips-tabs button[aria-selected=true] span{color:#c24a00}
 
-/* Boarding pass */
-.pass-list{display:grid;gap:18px}
-.pass{position:relative;display:grid;grid-template-columns:minmax(0,1fr) 260px;background:#fff;border:1px solid #efe5d8;border-radius:24px;box-shadow:0 12px 32px #3a1c040d;overflow:hidden;transition:box-shadow .3s,border-color .3s}
-.pass:hover{box-shadow:0 20px 44px #3a1c0417;border-color:#f6cfae}
-.pass:before{content:'';position:absolute;left:0;top:0;bottom:0;width:6px;background:var(--brand-gradient);z-index:1}
-.pass.closed:before{background:#d8d9d1}
-.pass.payment_failed:before{background:#e0532c}
-.pass-main{padding:24px 28px 22px 34px;min-width:0}
-.pass-top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
-.pass-kind{display:inline-flex;align-items:center;gap:8px;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#c25000}
-.pass-route{display:grid;grid-template-columns:auto minmax(90px,1fr) auto;align-items:center;gap:22px;margin:22px 0 22px}
-.pass-city{min-width:0}
-.pass-city strong{display:block;font-family:Manrope,sans-serif;font-size:42px;font-weight:800;letter-spacing:-1.5px;line-height:1}
-.pass-city span{display:block;font-size:13px;font-weight:650;margin-top:7px}
-.pass-city small{display:block;font-size:12px;color:#8a8175;margin-top:3px}
-.pass-city.to{text-align:right}
-.pass-path{position:relative;display:grid;place-items:center;height:58px}
-.pass-line{position:absolute;left:0;right:0;top:50%;border-top:2px dashed #f2c9a6}
-.pass-line:before,.pass-line:after{content:'';position:absolute;top:-5px;width:8px;height:8px;border-radius:50%;background:#fff;border:2px solid #f5a66b}
-.pass-line:before{left:-2px}
-.pass-line:after{right:-2px}
-.pass-plane{position:relative;width:40px;height:40px;border-radius:50%;display:grid;place-items:center;background:var(--brand-gradient);color:#fff;box-shadow:0 8px 18px #ef590033}
-.pass-plane svg{transform:rotate(45deg)}
-.pass-path small{position:absolute;bottom:-16px;font-size:11px;color:#8a8175;white-space:nowrap}
-.pass-meta{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;border-top:1px solid #f4ece2;padding-top:16px}
-.pass-meta small{display:block;font-size:10.5px;letter-spacing:.7px;text-transform:uppercase;color:#a0968a;font-weight:700}
-.pass-meta strong{display:block;font-size:13px;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.pass-stub{position:relative;display:flex;flex-direction:column;justify-content:space-between;gap:16px;padding:24px 24px 22px 26px;background:linear-gradient(155deg,#fff8ed,#fff0e5);border-left:2px dashed #f0d2b6}
-.pass-stub:before,.pass-stub:after{content:'';position:absolute;left:-14px;width:26px;height:26px;border-radius:50%;background:#fff;border:1px solid #efe5d8}
-.pass-stub:before{top:-14px}
-.pass-stub:after{bottom:-14px}
-.pass-stub small{display:block;font-size:10.5px;letter-spacing:.8px;text-transform:uppercase;color:#a07a5c;font-weight:700}
-.pnr{display:block;font-family:Manrope,sans-serif;font-size:28px;font-weight:800;letter-spacing:3px;color:var(--ink);margin-top:5px}
-.pnr.pending{font-size:15px;letter-spacing:0;color:#a46a3d;font-weight:700}
-.pass-amount{display:block;font-family:Manrope,sans-serif;font-size:23px;font-weight:800;letter-spacing:-.6px;color:#d14f00;margin-top:5px;white-space:nowrap}
-.pass-date{display:block;font-size:11px;color:#a08a76;margin-top:3px}
-.pass-buttons{display:grid;gap:8px}
-.pass-pay{min-height:42px;font-size:13px;padding:0 14px}
-.pass-toggle{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid #f1cfb1;background:#fff;border-radius:10px;padding:10px 12px;font-size:12.5px;font-weight:650;color:#a74900}
-.pass-toggle:hover{background:#fff5eb;border-color:#f9a862}
-.pass-toggle svg{transition:transform .25s var(--ease)}
-.pass-toggle[aria-expanded=true] svg{transform:rotate(180deg)}
-.pass.closed .pass-city strong,.pass.closed .pass-amount,.pass.closed .pnr{color:#9a9c94}
-.pass.closed .pass-plane{background:#c9cac2;box-shadow:none}
-.pass-detail{grid-column:1/-1;border-top:1px solid #f4ece2;background:#fcfbf8;padding:24px 28px 26px 34px;display:grid;gap:14px}
-.pass-detail .detail-block{background:#fff;border:1px solid #f1ebe2;border-radius:16px;padding:16px 18px}
-.pass-detail .notice{margin:0}
-.seg-list{display:grid}
-.seg{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:14px;align-items:center;font-size:13px;padding:11px 0;border-top:1px solid #f4efe7}
-.seg:first-child{border-top:0;padding-top:2px}
-.seg .airline-logo,.seg .logo-fallback{width:34px;height:34px;flex:none}
-.seg strong{display:block;font-weight:650}
-.seg small{display:block;font-size:11.5px;color:#8a8175;margin-top:3px}
-.seg-time{font-family:Manrope,sans-serif;font-weight:750;font-size:14px;white-space:nowrap;text-align:right}
-.seg-time sup{font-size:10px;color:#c25000;margin-left:2px}
-.seg-time small{font-family:'DM Sans',sans-serif;font-weight:500}
-.layover-note{display:flex;align-items:center;gap:8px;font-size:12px;color:#9a5a24;background:#fff6ec;border-radius:10px;padding:8px 11px;margin:2px 0 4px}
-.trips-empty{display:grid;grid-template-columns:minmax(0,1fr) 320px;align-items:center;gap:26px;background:#fff;border:1px solid #efe5d8;border-radius:24px;padding:34px 38px;box-shadow:0 14px 34px #3a1c040b}
-.trips-empty h3{font-size:24px;letter-spacing:-.7px;margin:10px 0 0}
-.trips-empty p{font-size:13.5px;color:#857b70;line-height:1.7;margin:10px 0 20px;max-width:460px}
-.trips-empty img{width:100%;height:auto;transform:rotate(-4deg);filter:drop-shadow(0 18px 26px #a3480020)}
+/* Trip card */
+.trip-list{display:grid;gap:12px}
+.trip{background:#fff;border:1px solid #efe7dc;border-radius:20px;overflow:hidden;transition:border-color .2s,box-shadow .25s}
+.trip:hover{border-color:#f3cdae;box-shadow:0 14px 34px #3a1c040f}
+.trip-open{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:16px;width:100%;padding:18px 20px;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.trip-open:focus-visible{outline:2px solid #f57a1f;outline-offset:-3px;border-radius:20px}
+.trip-logo{width:46px;height:46px;display:grid;place-items:center;flex:none}
+.trip-logo>.airline-logo,.trip-logo>.logo-fallback{width:44px;height:44px;border-radius:50%;background:#fff;box-shadow:0 0 0 1px #efe7dc;padding:3px;box-sizing:border-box;object-fit:contain}
+.trip-logo>.logo-fallback{display:grid;place-items:center;font-size:12px}
+.trip-logo>svg{color:var(--orange)}
+.trip-main{display:grid;gap:5px;min-width:0}
+.trip-top{display:flex;align-items:center;justify-content:space-between;gap:8px 12px;flex-wrap:wrap}
+.trip-title{font-family:Manrope,sans-serif;font-size:18px;font-weight:750;letter-spacing:-.4px;color:var(--ink)}
+.trip-title i,.sheet-head h2 i{font-style:normal;font-weight:500;color:var(--orange);padding:0 3px}
+.trip-when{font-size:13px;color:#7a7f74}
+.trip-chevron{display:grid;color:#c9bfb1}
+.trip-status{display:inline-flex;align-items:center;gap:6px;border-radius:30px;padding:5px 11px;font-size:11.5px;font-weight:700;white-space:nowrap}
+.trip-status:before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor}
+.trip-status.ok{background:#e9f6ec;color:#2f7a42}
+.trip-status.info{background:#e8f1fb;color:#1f62a3}
+.trip-status.warn{background:#fff3dc;color:#9a5600}
+.trip-status.error{background:#fdecea;color:#b4361b}
+.trip-status.muted{background:#f0f0ec;color:#6b6f66}
+.trip-foot{display:flex;align-items:center;justify-content:space-between;gap:10px 14px;flex-wrap:wrap;padding:12px 20px 14px 82px;border-top:1px solid #f4efe7}
+.trip-fact{display:grid;gap:2px}
+.trip-fact small{font-size:10.5px;font-weight:700;letter-spacing:.9px;text-transform:uppercase;color:#a0968a}
+.trip-fact b{font-size:14.5px;font-weight:700;color:var(--ink)}
+.trip-fact .pnr{font-family:Manrope,sans-serif;font-size:18px;letter-spacing:1.5px}
+.trip-foot .primary{min-height:40px;padding:0 16px;border-radius:11px;font-size:13px}
+.trip.muted .trip-title,.trip.muted .trip-fact b{color:#8a8d85}
+.trip.muted .trip-logo{filter:grayscale(1);opacity:.7}
+.trips-none{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:18px 20px;border:1px dashed #ead9c6;border-radius:18px;background:#fff;font-size:13.5px;color:#7a6a5c}
+.trips-none svg{color:var(--orange)}
+.trips-none .link-btn{margin-left:auto}
+.trips-empty{padding:46px 24px;text-align:center;background:#fff;border:1px solid #efe7dc;border-radius:24px}
+.trips-empty h2{font-size:22px;letter-spacing:-.6px;margin:0}
+.trips-empty p{font-size:14px;line-height:1.6;color:#7a7f74;margin:8px auto 20px;max-width:360px}
 
-@media(max-width:1100px){.trips-hero{padding:40px 40px 92px}.trips-hero h1{font-size:42px;letter-spacing:-1.8px}}
-@media(max-width:980px){.trips-login{grid-template-columns:1fr}.pass{grid-template-columns:minmax(0,1fr) 230px}.pass-city strong{font-size:34px}}
+/* Details: side panel (bottom sheet on phones) */
+.trip-sheet{position:fixed;inset:0 0 0 auto;margin:0;padding:0;border:0;border-radius:22px 0 0 22px;width:min(500px,100%);max-width:none;height:100vh;height:100dvh;max-height:none;background:#fff;color:var(--ink);box-shadow:-24px 0 60px #1c1e1926;overflow-y:auto;overscroll-behavior:contain}
+/* The home help dialog styles every "dialog p" and "dialog .primary": not this panel. */
+.trip-sheet p{margin:0}
+.trip-sheet .primary{display:inline-flex;align-items:center;justify-content:center;gap:9px}
+.trip-sheet[open]{animation:sheetIn .3s var(--ease)}
+.trip-sheet::backdrop{background:#1c1e1959}
+html:has(.trip-sheet[open]){overflow:hidden}
+@keyframes sheetIn{from{transform:translateX(36px);opacity:0}}
+@keyframes sheetUp{from{transform:translateY(40px);opacity:0}}
+.sheet-head{position:sticky;top:0;z-index:2;padding:22px 64px 18px 24px;background:#fff;border-bottom:1px solid #f3eee6}
+.sheet-head h2{font-family:Manrope,sans-serif;font-size:24px;font-weight:750;letter-spacing:-.7px;line-height:1.2;margin:12px 0 4px}
+.sheet-head p{font-size:13px;color:#7a7f74}
+.sheet-close{position:absolute;right:16px;top:16px;width:38px;height:38px;display:grid;place-items:center;border:1px solid #efe7dc;border-radius:50%;background:#fff;color:#6f6559}
+.sheet-close:hover{border-color:#f4b18f;color:#b34b00}
+.sheet-body{display:grid;gap:24px;padding:20px 24px 30px}
+.sheet-box{display:grid;gap:10px;padding:16px 18px;border:1px solid #f0e9df;border-radius:18px;background:#faf8f4;font-size:14px;line-height:1.6;color:#4e5348}
+.sheet-box.ok{background:#f2faf4;border-color:#d4ebdb}
+.sheet-box.info{background:#f2f7fd;border-color:#d6e5f6}
+.sheet-box.warn{background:#fff8ee;border-color:#fde3c3}
+.sheet-box.error{background:#fff4f1;border-color:#f6cfc2}
+.sheet-box p{font-size:14px;line-height:1.6;color:#4e5348}
+.sheet-box>small{font-size:10.5px;font-weight:700;letter-spacing:.9px;text-transform:uppercase;color:#4f8a5d}
+.sheet-box .pnr{font-family:Manrope,sans-serif;font-size:32px;font-weight:800;letter-spacing:3px;line-height:1;color:var(--ink)}
+.sheet-box .primary{justify-self:start;min-height:44px;padding:0 18px;border-radius:12px;font-size:13.5px}
+.sheet-note{font-size:12.5px;line-height:1.55;color:#8a8f84;margin:0}
+.sheet-atm{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:0}
+.sheet-atm div{padding:10px 12px;border:1px solid #f3e2cc;border-radius:12px;background:#fff}
+.sheet-atm dt{font-size:10.5px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:#a07a5c}
+.sheet-atm dd{margin:4px 0 0;font-family:Manrope,sans-serif;font-size:15px;font-weight:750}
+.sheet-atm .link-btn{padding:4px 0 0;font-size:12px}
+.sheet-sec h3{font-size:11px;font-weight:800;letter-spacing:1.3px;text-transform:uppercase;color:#a0968a;margin:0 0 4px}
+.sheet-leg{padding:12px 0 14px;border-bottom:1px solid #f3eee6}
+.sheet-leg-head{display:flex;align-items:center;gap:8px;font-size:12.5px;color:#7a7f74}
+.sheet-leg-head b{font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:#c24a00}
+.sheet-leg-route{display:grid;grid-template-columns:auto minmax(40px,1fr) auto;align-items:center;gap:14px;margin:10px 0 18px}
+.sheet-leg-route strong{display:block;font-family:Manrope,sans-serif;font-size:21px;font-weight:800;letter-spacing:-.4px}
+.sheet-leg-route strong sup{font-size:10px;color:var(--orange);margin-left:2px}
+.sheet-leg-route span{display:block;font-size:12.5px;color:#6f6559;margin-top:3px}
+.sheet-leg-route .to{text-align:right}
+.sheet-leg-line{position:relative;height:0;border-top:2px dashed #f2c9a6}
+.sheet-leg-line small{position:absolute;left:50%;top:8px;transform:translateX(-50%);white-space:nowrap;font-size:11px;color:#8a8f84}
+.sheet-leg-flights{font-size:12.5px;line-height:1.6;color:#8a8f84;margin:0}
+.sheet-sec>.sheet-note{margin-top:10px}
+.sheet-list{list-style:none;margin:0;padding:0}
+.sheet-list li{padding:10px 0;border-bottom:1px solid #f3eee6;font-size:14.5px;font-weight:600}
+.sheet-dl{margin:0}
+.sheet-dl div{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f3eee6;font-size:14px}
+.sheet-dl dt{color:#7a7f74}
+.sheet-dl dd{margin:0;font-weight:700;text-align:right}
+.sheet-dl .link-btn{padding:0}
+.sheet-meta{font-size:12.5px;line-height:1.7;color:#8a8f84;margin:0}
+
 @media(max-width:760px){
-  .trips-hero{grid-template-columns:1fr;min-height:0;padding:30px 22px 84px;border-radius:24px}
-  .trips-hero-art{display:none}
-  .trips-hero h1{font-size:33px;letter-spacing:-1.3px;max-width:290px}
-  .trips-hero p{font-size:13px}
-  .trips-body{margin-top:-56px}
-  .trips-login .panel{padding:22px 18px}
-  .trips-account{padding:16px}
-  .trips-actions{width:100%}
-  .trips-actions>*{flex:1;justify-content:center}
-  .pass{grid-template-columns:1fr}
-  .pass-main{padding:20px 18px 18px 24px}
-  .pass-route{gap:12px;margin:18px 0}
-  .pass-city strong{font-size:30px}
-  .pass-meta{grid-template-columns:1fr 1fr}
-  .pass-meta div:last-child{grid-column:1/-1}
-  .pass-stub{border-left:0;border-top:2px dashed #f0d2b6;display:grid;grid-template-columns:1fr 1fr;padding:20px 18px 18px 24px}
-  .pass-stub:before,.pass-stub:after{top:-14px;bottom:auto}
-  .pass-stub:before{left:-14px}
-  .pass-stub:after{left:auto;right:-14px}
-  .pass-buttons{grid-column:1/-1}
-  .pass-detail{padding:18px 16px 20px 22px}
-  .seg{grid-template-columns:auto minmax(0,1fr);row-gap:6px}
-  .seg-time{grid-column:2;text-align:left}
-  .trips-empty{grid-template-columns:1fr;padding:26px 22px}
-  .trips-empty img{display:none}
+  .trips{padding:22px 0 60px}
+  .trips h1{font-size:28px;letter-spacing:-1px}
+  .trips-login{padding:26px 18px 20px;border-radius:22px}
+  .trips-head{align-items:flex-start;margin-bottom:18px}
+  .trips-head-actions{width:100%}
+  .trips-head-actions .primary{flex:1}
+  .trips-tabs{display:flex}
+  .trips-tabs button{flex:1;justify-content:center}
+  .trip-open{grid-template-columns:auto minmax(0,1fr);gap:12px;padding:16px}
+  .trip-chevron{display:none}
+  .trip-logo,.trip-logo>.airline-logo,.trip-logo>.logo-fallback{width:40px;height:40px}
+  .trip-title{font-size:16.5px}
+  .trip-when{font-size:12.5px}
+  .trip-foot{padding:12px 16px 14px}
+  .trip-foot .primary{margin-left:auto}
+  .trip-sheet{inset:auto 0 0 0;width:100%;height:auto;max-height:92vh;max-height:92dvh;border-radius:24px 24px 0 0;box-shadow:0 -20px 50px #1c1e1926}
+  .trip-sheet[open]{animation-name:sheetUp}
+  .sheet-head{padding:22px 60px 14px 18px;border-radius:24px 24px 0 0}
+  .sheet-head:before{content:'';position:absolute;left:50%;top:8px;width:40px;height:4px;border-radius:4px;background:#e6ded2;transform:translateX(-50%)}
+  .sheet-close{top:18px}
+  .sheet-body{padding:16px 18px 26px}
+  .sheet-atm{grid-template-columns:1fr}
 }
+@media(prefers-reduced-motion:reduce){.trip-sheet[open]{animation:none}}

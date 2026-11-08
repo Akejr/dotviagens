@@ -167,7 +167,7 @@ async function startPayment(request, env, store, booking, deps) {
   }
   const referenceId = attempt === 1 ? booking.reference : `${booking.reference}-${attempt}`;
   const origin = publicOrigin(request, env);
-  const back = `${origin}/compra.html?ref=${encodeURIComponent(booking.reference)}`;
+  const back = `${origin}/compra?ref=${encodeURIComponent(booking.reference)}`;
   const charge = await createCharge(env, {
     amountAoa: Number(booking.amount_aoa),
     referenceId,

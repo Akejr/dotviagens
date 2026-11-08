@@ -23,6 +23,8 @@ As chaves ficam no ficheiro `.dev.vars` (fora do Git).
 O projecto já está configurado (`vercel.json`): site estático gerado por
 `scripts/vercel-build.mjs` em `dist-vercel/` e uma função, `api/index.mjs`,
 para todos os pedidos `/api/*`. Não instala dependências npm.
+As páginas abrem sem `.html` (`/resultados`, `/compra`, `/minhas-viagens`,
+`/admin`); os endereços antigos com `.html` redireccionam (308) para os novos.
 
 1. Vercel → **Add New → Project** → importar `Akejr/dotviagens`. Manter as
    opções de build (vêm do `vercel.json`).
@@ -60,6 +62,13 @@ Os artigos estão em `content/blog/articles.mjs`. Depois de editar, correr
 `node scripts/build-blog.mjs`: gera `public/blog/*.html` e `public/sitemap.xml`
 (não editar esses ficheiros à mão). O script recusa travessões (— ou –) nos
 textos.
+
+## Aeroportos
+
+`public/airports-popular.js` (os aeroportos que aparecem logo, antes de o
+catálogo completo `public/airports.json` carregar) é gerado por
+`node scripts/build-airports-popular.mjs`. Correr de novo depois de mudar a
+lista do script ou o `airports.json`.
 
 Configure as chaves somente no ambiente do servidor (Vercel ou `.dev.vars`).
 Nunca no frontend nem no repositório.

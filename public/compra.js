@@ -83,7 +83,7 @@ function backUrl() {
   if (!q) return '/#pesquisa';
   const search = new URLSearchParams({ origin: q.origin, destination: q.destination, departureDate: q.departureDate, passengers: String(q.passengers), cabin: 'economy' });
   if (q.returnDate) search.set('returnDate', q.returnDate);
-  return `/resultados.html?${search}`;
+  return `/resultados?${search}`;
 }
 
 function renderHeading(info) {
@@ -456,7 +456,7 @@ async function payManual() {
     if (tab) tab.location.replace(link);
     sessionStorage.removeItem(STORE_KEY);
     currentRef = result.reference;
-    history.replaceState(null, '', `/compra.html?ref=${encodeURIComponent(result.reference)}`);
+    history.replaceState(null, '', `/compra?ref=${encodeURIComponent(result.reference)}`);
     renderSteps(true);
     renderStatus({
       reference: result.reference, status: 'pending_payment', paymentMethod: 'manual', amountAoa: result.amountAoa,
@@ -485,7 +485,7 @@ async function pay() {
     const result = await api('/api/bookings', { method: 'POST', timeout: 60000, body: bookingBody('wiza') });
     sessionStorage.removeItem(STORE_KEY);
     currentRef = result.reference;
-    history.replaceState(null, '', `/compra.html?ref=${encodeURIComponent(result.reference)}`);
+    history.replaceState(null, '', `/compra?ref=${encodeURIComponent(result.reference)}`);
     renderSteps(true);
     if (result.hostedUrl) {
       renderStatus({ reference: result.reference, status: 'pending_payment', amountAoa: result.amountAoa, payment: { hostedUrl: result.hostedUrl, canRetry: false, windowOpen: true } });
@@ -559,7 +559,7 @@ async function checkNow() {
     if (error.status === 401 || error.status === 404) {
       stopPolling();
       closePayment();
-      fatal('Não foi possível confirmar', error.message, '<a class="primary" href="/minhas-viagens.html">Ir para Minhas viagens</a>');
+      fatal('Não foi possível confirmar', error.message, '<a class="primary" href="/minhas-viagens">Ir para Minhas viagens</a>');
     }
   }
 }
@@ -575,14 +575,14 @@ function renderStatus(booking) {
     main.innerHTML = `<div class="panel status-hero"><span class="round-icon success">${icon('checkCircle', 34)}</span><h2>Pagamento confirmado!</h2>${ref}
       <p>${ticketed ? 'O teu bilhete já foi emitido. Vê o código da reserva em Minhas viagens.' : 'Obrigado! Agora a equipa DOT emite o teu bilhete e avisa-te por SMS.'}</p>
       ${nextSteps(ticketed ? 3 : 1)}
-      <div class="form-actions"><a class="primary" href="/minhas-viagens.html">${icon('ticket', 16)} Ver Minhas viagens</a><a class="back-link step-back" href="/#pesquisa">${backIcon}<span class="back-text">Nova pesquisa</span></a></div></div>`;
+      <div class="form-actions"><a class="primary" href="/minhas-viagens">${icon('ticket', 16)} Ver Minhas viagens</a><a class="back-link step-back" href="/#pesquisa">${backIcon}<span class="back-text">Nova pesquisa</span></a></div></div>`;
     return;
   }
   if (booking.status === 'pending_payment' && booking.paymentMethod === 'manual') {
     const link = booking.whatsappUrl || bookingLink(booking, city);
     main.innerHTML = `<div class="panel status-hero manual-hero"><span class="round-icon wa-icon">${LOGO.whatsapp}</span><h2>Reserva guardada!</h2>${ref}
       <p>${booking.opened ? 'Abrimos o WhatsApp da DOT noutro separador, com os dados do voo. Envia a mensagem para combinares o pagamento.' : 'Abre o WhatsApp da DOT: a mensagem já leva os dados do voo. Envia-a para combinares o pagamento.'}</p>
-      <div class="form-actions"><a class="primary whatsapp-btn" href="${esc(link)}" target="_blank" rel="noopener">${whatsappGlyph} Abrir o WhatsApp</a></div>
+      <div class="form-actions"><a class="primary whatsapp-btn"${booking.whatsappUrl ? '' : ' data-booking-wa'} href="${esc(link)}" target="_blank" rel="noopener">${whatsappGlyph} Abrir o WhatsApp</a></div>
       <ul class="manual-facts">
         <li>${icon('wallet', 16)}<span>Total a pagar: <b>${formatKz(booking.amountAoa)}</b>, com taxas incluídas.</span></li>
         <li>${icon('clock', 16)}<span>A reserva fica à espera do pagamento até 72 horas.</span></li>
@@ -622,13 +622,13 @@ function renderStatus(booking) {
   if (booking.status === 'payment_failed') {
     main.innerHTML = `<div class="panel status-hero"><span class="round-icon error">${icon('x', 32)}</span><h2>O pagamento não foi concluído</h2>${ref}
       <p>${esc(payment.message || 'A Wiza não confirmou o pagamento.')} Nenhum valor foi cobrado por esta tentativa.</p>
-      <div class="form-actions">${payment.canRetry ? `<button class="primary" type="button" id="retry">${icon('refresh', 16)} Tentar novamente</button>` : ''}<a class="link-btn" href="${esc(booking.itinerary ? bookingLink(booking, city) : 'https://wa.me/244931343433')}" target="_blank" rel="noopener">Pagar pelo WhatsApp</a></div></div>`;
+      <div class="form-actions">${payment.canRetry ? `<button class="primary" type="button" id="retry">${icon('refresh', 16)} Tentar novamente</button>` : ''}<a class="link-btn"${booking.itinerary ? ' data-booking-wa' : ''} href="${esc(booking.itinerary ? bookingLink(booking, city) : 'https://wa.me/244931343433')}" target="_blank" rel="noopener">Pagar pelo WhatsApp</a></div></div>`;
     $('#retry')?.addEventListener('click', retry);
     return;
   }
   main.innerHTML = `<div class="panel status-hero"><span class="round-icon">${icon('info', 32)}</span><h2>${esc(booking.statusLabel || 'Reserva actualizada')}</h2>${ref}
     <p>${booking.status === 'expired' ? 'O prazo para pagar esta reserva terminou. Faz uma nova pesquisa para ver os preços actuais.' : 'Consulta os detalhes em Minhas viagens ou fala com a equipa DOT.'}</p>
-    <div class="form-actions"><a class="primary" href="/#pesquisa">Nova pesquisa</a><a class="link-btn" href="/minhas-viagens.html">Minhas viagens</a></div></div>`;
+    <div class="form-actions"><a class="primary" href="/#pesquisa">Nova pesquisa</a><a class="link-btn" href="/minhas-viagens">Minhas viagens</a></div></div>`;
 }
 
 // What happens after paying: payment → ticket issued by the DOT team → SMS and Minhas viagens.
@@ -664,7 +664,7 @@ async function retry() {
 // Rendered again when the airport list arrives, so the cities replace the codes.
 function renderBookingFrame(booking) {
   renderHeading({ origin: booking.origin, destination: booking.destination, departureDate: booking.departureDate, returnDate: booking.returnDate, passengers: booking.passengersCount });
-  $('#back-link').href = '/minhas-viagens.html';
+  $('#back-link').href = '/minhas-viagens';
   $('#back-link .back-text').textContent = 'Minhas viagens';
   const legs = booking.itinerary;
   aside.innerHTML = legs?.outbound ? tripCard({ passengers: booking.passengersCount, outbound: legs.outbound, inbound: legs.inbound, amountAoa: booking.amountAoa, totalLabel: 'Total pago ou a pagar' }) : '';
@@ -700,7 +700,7 @@ async function statusMode(reference) {
     if (booking.status === 'pending_payment' && booking.payment?.windowOpen) startPolling();
     else if (booking.status === 'pending_payment' && booking.paymentMethod !== 'manual') checkNow();
   } catch (error) {
-    fatal('Reserva não encontrada', error.message, '<a class="primary" href="/minhas-viagens.html">Ir para Minhas viagens</a>');
+    fatal('Reserva não encontrada', error.message, '<a class="primary" href="/minhas-viagens">Ir para Minhas viagens</a>');
   }
 }
 
@@ -711,7 +711,7 @@ async function checkoutMode() {
     state.itinerary = null;
   }
   if (!state.itinerary?.outbound) {
-    return fatal('Ainda não escolheste uma viagem', 'Pesquisa voos e escolhe a ida e a volta para continuar a compra.', '<a class="primary" href="/#pesquisa">Pesquisar voos</a><a class="link-btn" href="/minhas-viagens.html">Minhas viagens</a>');
+    return fatal('Ainda não escolheste uma viagem', 'Pesquisa voos e escolhe a ida e a volta para continuar a compra.', '<a class="primary" href="/#pesquisa">Pesquisar voos</a><a class="link-btn" href="/minhas-viagens">Minhas viagens</a>');
   }
   renderSteps();
   try {
@@ -733,8 +733,11 @@ loadAirports().then(list => {
   airportNames = Object.fromEntries(list.map(a => [a.code, a.name]));
   airportNames.LIS = 'Humberto Delgado';
   airportNames.CMN = 'Mohammed V';
-  if (statusBooking) renderBookingFrame(statusBooking);
-  else if (state.quote) {
+  if (statusBooking) {
+    renderBookingFrame(statusBooking);
+    // The WhatsApp message names the cities: rebuild those links now that the names are known.
+    main.querySelectorAll('[data-booking-wa]').forEach(link => { link.href = bookingLink(statusBooking, city); });
+  } else if (state.quote) {
     renderHeading(state.quote.query);
     renderAside();
     if (state.step === 'review') renderReview();

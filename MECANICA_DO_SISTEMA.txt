@@ -1,5 +1,10 @@
 DOT VIAGENS — DOCUMENTAÇÃO DO SISTEMA
-Revisão: 8 de Novembro de 2026 (4.ª) — pagamento em três opções (manual pelo
+Revisão: 8 de Novembro de 2026 (5.ª) — telemóvel: a home responde ao primeiro
+toque (aeroportos populares logo, catálogo completo em segundo plano,
+modulepreload), sem zoom ao tocar nos campos (letra de 16 px), endereços sem
+.html (os antigos redireccionam) e Minhas viagens redesenhada (lista simples
+com separadores; detalhes num painel).
+4.ª revisão: pagamento em três opções (manual pelo
 WhatsApp, Wiza, cartões indisponíveis), blog com 6 artigos (substitui a
 secção de SEO da home e o guia), hero original de volta, ícones da home sem
 fundo, revisão da compra mais limpa.
@@ -33,7 +38,8 @@ Frontend HTML/CSS/JS em public/ (sem bundler). Duas formas de correr a mesma
 API (server/router.mjs), sem alterar o código das rotas:
 - Desenvolvimento local: Vinext com Worker Cloudflare. app/page.tsx
   redirecciona para /home.html; app/admin e app/minhas-viagens para os .html
-  respectivos; app/blog e app/blog/[slug] para public/blog/*.html;
+  respectivos; app/compra e app/resultados também, mantendo a query (?ref=…
+  ou a pesquisa); app/blog e app/blog/[slug] para public/blog/*.html;
   app/pagar-passagens-em-kwanzas para o artigo do blog que o substituiu.
   worker/index.ts envia TODOS os pedidos /api/* para server/router.mjs e
   preserva o restante runtime Sites. O handler scheduled() executa a
@@ -63,20 +69,36 @@ https://ourairports.com/data/
 https://davidmegginson.github.io/ourairports-data/airports.csv
 https://davidmegginson.github.io/ourairports-data/countries.csv
 A base não promete todos os aeroportos existentes ou todos os destinos vendidos.
+Primeira visita (telemóvel): a home nunca espera pelo catálogo para responder
+ao toque. public/airports-popular.js traz 50 aeroportos (Luanda, as rotas
+mais procuradas a partir de Luanda e os aeroportos de Angola), com os mesmos
+campos do airports.json; é gerado por scripts/build-airports-popular.mjs
+(correr de novo ao mudar a lista CODES ou o airports.json). O campo abre logo
+com essa lista; com a caixa de pesquisa vazia mostra-a como sugestões. O
+catálogo completo (airports.json, ~1 MB, ~170 KB comprimido) descarrega em
+segundo plano (fetch com prioridade baixa); enquanto não chega, a pesquisa
+mostra "A carregar todos os aeroportos…" e actualiza-se sozinha. Os <select>
+nativos só recebem a opção do aeroporto escolhido (antes eram ~18.000 opções,
+que bloqueavam o telemóvel). ?destino= com um código fora da lista popular
+espera pelo catálogo.
 public/countries.js: nacionalidades e países emissores (ISO 3166-1) em pt-AO,
 Angola primeiro, usados no formulário de passageiros.
 
 4. PESQUISA E ESTADO
 home.html contém formulário e branding, app.js valida e navega para
-/resultados.html?origin=NBJ&destination=LIS&departureDate=YYYY-MM-DD
+/resultados?origin=NBJ&destination=LIS&departureDate=YYYY-MM-DD
 &returnDate=YYYY-MM-DD&passengers=1&cabin=economy
 Omitir returnDate para só ida. interactions.js contém dropdown pesquisável,
 calendários (price-calendar.js, ver secção 8A) e selecção de adultos;
-carousel.js gere o slideshow. /?destino=LIS#pesquisa (ou /home.html?destino=LIS)
+carousel.js gere o slideshow. app.js carrega interactions.js e carousel.js
+em paralelo. O formulário tem onsubmit="return false": um toque em Pesquisar
+antes de o JS carregar já não recarrega a página. /?destino=LIS#pesquisa
 preenche o destino e já prepara os preços do calendário; os artigos do blog
 usam estes endereços nos botões "Pesquisar voos para…". Na ida e volta, escolher a ida mantém a duração
 da viagem (a volta acompanha) e abre logo o calendário da volta.
 results.js gere estados outbound, return e summary, datas, filtros e paginação.
+Não espera pelo catálogo de aeroportos: valida os códigos (três letras) e
+pesquisa logo; os nomes das cidades aparecem quando o catálogo chega.
 Ao abrir, results.js lê GET /api/rate {rate, markupBp}: com câmbio mostra o
 preço final em Kz (câmbio + taxa DOT); sem câmbio mostra BRL com a taxa, avisa
 e desactiva a compra. O botão "Data de ida/volta" abre o calendário com preços.
@@ -84,7 +106,7 @@ Cada pesquisa da página de resultados envia sid (sessão do browser) e jid
 (uma pesquisa: sessionStorage dot-jid:<rota|datas|adultos>, válido 30 minutos)
 para o painel agrupar as datas vizinhas, idas e voltas numa só linha.
 No resumo, "Comprar esta viagem" grava as ofertas assinadas em sessionStorage
-(chave dot-checkout-v1) e abre /compra.html.
+(chave dot-checkout-v1) e abre /compra.
 Cada pedido de pesquisa leva kind (view, prefetch, return, return-prefetch) e
 sid (id de sessão do separador) apenas para o painel de pesquisas.
 Cache do browser: chave dot-flight-cache-v3. Entradas expiradas continuam
@@ -224,7 +246,7 @@ numérico 46554; o formulário avisa o cliente. Cada SMS fica em sms_messages
 (sem o texto das OTP); o estado consulta-se no painel.
 
 10. COMPRA E PAGAMENTO (WIZA OU MANUAL) E FACTURA (VERO)
-/compra.html: Revisão → Contacto (OTP) → Passageiros → Pagamento.
+/compra: Revisão → Contacto (OTP) → Passageiros → Pagamento.
 Etapa Pagamento ("Como queres pagar?"), três opções, por esta ordem:
 1. Pagamento manual (logótipo do WhatsApp), escolhida por defeito. O botão
    "Continuar no WhatsApp" grava a reserva (POST /api/bookings com
@@ -291,22 +313,37 @@ actual mostra o nome), campos com a etiqueta dentro, cartão de embarque da
 viagem ao lado (ida, volta e total), itinerário em linha do tempo, opções de
 pagamento em cartões com logótipos, próximos passos depois de pagar e cartão
 ATM (entidade, referência com botão Copiar, valor). Na página de estado
-(compra.html?ref=…) o título mostra as cidades quando o catálogo carrega;
+(/compra?ref=…, também o retorno da Wiza) o título mostra as cidades quando o
+catálogo carrega;
 num pagamento falhado, "Pagar pelo WhatsApp" abre a conversa com a reserva.
 Endpoints: POST /api/checkout/quote · POST /api/bookings · GET /api/bookings ·
 GET /api/bookings/<ref> · POST /api/bookings/<ref>/check · POST /api/bookings/<ref>/pay ·
 POST /api/payments/wiza/callback · POST /api/internal/sweep.
 
 11. MINHAS VIAGENS
-/minhas-viagens.html (botão Minhas viagens do cabeçalho). Entrada com o número
-de telemóvel + código SMS, sem palavra-passe. Usa o cabeçalho e o rodapé da
-home, um hero com a arte de bilhete e cada reserva como cartão de embarque:
-códigos dos aeroportos, datas, companhia, reserva DOT e, no canhoto, o código
-da reserva (PNR), o total e o botão para concluir o pagamento ("Pagar pelo
-WhatsApp" nas reservas de pagamento manual, com a mensagem pronta). Agrupa em
-"Próximas viagens" e "Anteriores e canceladas". Os detalhes mostram pagamento
-(incluindo entidade e referência ATM), itinerário, passageiros (passaporte
-mascarado), factura (PDF) e bilhete (PNR e números).
+/minhas-viagens (botão Minhas viagens do cabeçalho). Cabeçalho e rodapé da
+home, fundo creme e uma só coluna ao centro (até 880 px), sem arte.
+- Sem sessão: um cartão com "Minhas viagens", "Entra com o número de
+  telemóvel que usaste na compra.", número + código SMS (sem palavra-passe)
+  e a ligação de ajuda.
+- Com sessão: "Olá, <nome> · <telemóvel>", o título, "Nova viagem" e "Sair";
+  separadores "Próximas N" e "Anteriores N". Anteriores = canceladas,
+  expiradas, reembolsadas ou com a última data já passada (dia de Luanda).
+- Cada reserva é um cartão compacto: logótipo da companhia, "Luanda → Lisboa",
+  estado (Por pagar, Pagamento não concluído, Bilhete em emissão, Bilhete
+  emitido, Expirada, Cancelada, Reembolsada), datas · tipo de viagem ·
+  adultos e, em baixo, um só dado (código da reserva, total a pagar, "Estamos
+  a emitir o bilhete" ou a referência DOT) e no máximo uma acção (Pagar pelo
+  WhatsApp, Pagar, Ver referência, Tentar novamente).
+- Tocar no cartão abre os detalhes num painel (<dialog id="trip-sheet">): à
+  direita no computador (500 px), de baixo para cima no telemóvel (até 92%
+  da altura). Em cima, o estado e o que fazer: PNR e números do bilhete;
+  entidade, referência ATM (botão Copiar) e valor; pagamento pelo WhatsApp
+  com a mensagem pronta; nova tentativa. Depois: voos, passageiros (só os
+  nomes), pagamento (total e factura em PDF) e a referência DOT com a ajuda.
+  Fecha com o X, com Escape ou com um toque fora do painel.
+- /minhas-viagens?ref=DOT-… abre logo o painel dessa reserva, no separador
+  certo; abrir e fechar o painel actualizam o endereço sem recarregar.
 
 12. PAINEL DE ADMINISTRAÇÃO (/admin)
 Entrada por OTP para role admin. O primeiro administrador vem de ADMIN_PHONES;
@@ -379,7 +416,9 @@ reservas por pagar > 72 h passam a expired.
 14. MAPA DE FICHEIROS
 public/home.html, styles.css: apresentação e formulário.
 public/app.js, interactions.js, carousel.js: lógica da home.
-public/airports.json, airports.js: catálogo e carregamento único.
+public/airports.json, airports.js: catálogo e carregamento único (em segundo
+plano). public/airports-popular.js: 50 aeroportos para a primeira abertura
+(GERADO por scripts/build-airports-popular.mjs; não editar à mão).
 public/resultados.html, results.css, results.js: selecção de voos e compra.
 public/flight-model.js: filtros, ordenação, total, Kz, taxa DOT e resolveReturns.
 public/price-calendar.js: calendário com preços (home e resultados).
@@ -414,7 +453,8 @@ server/supabase.mjs: cliente PostgREST.
 supabase/migrations/: esquema da base de dados.
 worker/index.ts: integração no Worker (fetch e scheduled).
 api/index.mjs: função da Vercel (a mesma API). vercel.json: build, rotas,
-cabeçalhos, cache e cron. scripts/vercel-build.mjs: gera dist-vercel/.
+cabeçalhos, cache e cron. scripts/vercel-build.mjs: gera dist-vercel/ (e os
+modulepreload de cada página).
 .vercelignore: ficheiros que não sobem para a Vercel.
 tests/*.test.mjs: contratos, tokens, preços, cache, validação e filtros.
 public/assets/: logo, paisagens e arte de bilhete; não é preciso regenerar.
@@ -463,20 +503,30 @@ Web Crypto. vercel.json:
   sitemap para o dia do build.
 - Rotas: /api/:path* → função api/index.mjs (rewrite com ?__path=; a função
   reconstrói o caminho original e o domínio https a partir de
-  x-forwarded-proto/x-forwarded-host). /admin e /minhas-viagens servem os
-  .html; /blog serve blog/index.html e /blog/<slug> serve blog/<slug>.html.
-  Redireccionam (308): /home.html para /, /blog/index(.html) para /blog,
-  /blog/<slug>.html para /blog/<slug>, e /pagar-passagens-em-kwanzas(.html)
-  (o guia antigo) para /blog/como-pagar-passagens-aereas-em-kwanzas.
-  cleanUrls fica desligado para /resultados.html e /compra.html (e os
-  retornos da Wiza) abrirem sem redireccionamento.
+  x-forwarded-proto/x-forwarded-host). Endereços sem .html: /admin,
+  /minhas-viagens, /compra e /resultados servem os .html respectivos
+  (rewrite; a query mantém-se); /blog serve blog/index.html e /blog/<slug>
+  serve blog/<slug>.html. Os endereços antigos redireccionam (308, a query
+  passa): /home.html para /, /admin.html, /minhas-viagens.html, /compra.html
+  e /resultados.html para o mesmo endereço sem .html, /blog/index(.html)
+  para /blog, /blog/<slug>.html para /blog/<slug>, e
+  /pagar-passagens-em-kwanzas(.html) (o guia antigo) para
+  /blog/como-pagar-passagens-aereas-em-kwanzas. Assim, links guardados e
+  pagamentos Wiza iniciados antes da mudança (que voltam a compra.html?ref=…)
+  continuam a funcionar. cleanUrls fica desligado: as rotas estão escritas à
+  mão no vercel.json. Todos os links internos já usam os endereços sem .html.
+- modulepreload: o build acrescenta ao <head> de cada página um
+  <link rel="modulepreload"> por cada módulo JS que a página usa (imports
+  estáticos e dinâmicos). O telemóvel descarrega-os em paralelo em vez de um
+  a seguir ao outro (app.js → services.js → interactions.js → …).
 - Trabalho depois da resposta (registos, SMS, factura, cache do calendário):
   waitUntil do contexto da Vercel; sem ele, a função espera antes de responder.
   maxDuration 60 s.
 - Cabeçalhos: nosniff, Referrer-Policy, X-Frame-Options SAMEORIGIN (o iframe da
-  Wiza volta ao nosso compra.html), Permissions-Policy, HSTS; X-Robots-Tag
-  noindex nas páginas privadas; cache de 7 dias em /assets e ícones, 1 dia em
-  airports.json. Sem CSP, para não partir o iframe da Wiza nem as fontes.
+  Wiza volta à nossa página /compra), Permissions-Policy, HSTS; X-Robots-Tag
+  noindex nas páginas privadas (com e sem .html); cache de 7 dias em /assets
+  e ícones, 1 dia em airports.json. Sem CSP, para não partir o iframe da Wiza
+  nem as fontes.
 - Cron: GET /api/internal/sweep uma vez por dia, 06:00 UTC (o plano Hobby só
   permite uma vez por dia e pode correr até às 06:59). A Vercel envia
   Authorization: Bearer CRON_SECRET. No plano Pro pode passar a
@@ -552,7 +602,15 @@ seta num círculo laranja claro ("Nova pesquisa", "Voltar aos resultados",
 o site é todo em kwanzas. Não há textos de pré-lançamento.
 Fundo das páginas interiores: creme #faf9f6.
 Minhas viagens usa o cabeçalho, a barra de anúncio e o rodapé da home, com
-cartões de embarque; os campos têm a etiqueta dentro, como na compra.
+uma lista simples de cartões e os detalhes num painel (secção 11).
+Telemóvel e zoom (styles.css): em ecrãs tácteis ou até 760 px, campos de
+texto, listas (select) e áreas de texto têm sempre letra de 16 px, porque o
+iPhone amplia a página inteira ao tocar num campo com letra mais pequena.
+touch-action: manipulation tira o zoom por duplo toque e o atraso do toque;
+text-size-adjust: 100% impede que o texto aumente sozinho ao rodar o
+telemóvel. Não se usa maximum-scale=1: o zoom com dois dedos continua a
+funcionar (acessibilidade). Ao criar campos novos, não baixar dos 16 px no
+telemóvel.
 Painel: barra lateral escura (#1c1e19) com o item activo no gradiente da marca,
 fundo creme (#f7f5f0), mosaicos de ícones como os benefícios da home, banner
 com a Marginal de Luanda (assets/admin-luanda.jpg, 1600 px, reduzido de
@@ -595,7 +653,9 @@ Regra: o texto das perguntas no JSON-LD (FAQPage) tem de ser IGUAL ao das
 perguntas visíveis. Na home, mudar as duas à mão; no blog, o build gera as
 duas a partir do mesmo texto.
 Páginas fora do Google: resultados, compra, Minhas viagens, painel e /api
-(meta robots noindex, X-Robots-Tag e Disallow no robots.txt). Os resultados
+(meta robots noindex, X-Robots-Tag e Disallow no robots.txt). As linhas do
+robots.txt são prefixos: Disallow: /compra cobre /compra, /compra?ref=… e o
+antigo /compra.html. Os resultados
 não são indexados porque cada visita faz pesquisas pagas na SerpApi e os
 preços mudam constantemente.
 sitemap.xml (gerado por scripts/build-blog.mjs): /, /blog e os 6 artigos,
@@ -604,6 +664,12 @@ Velocidade (Core Web Vitals): paisagens em JPG com srcset (960 px no
 telemóvel), primeira imagem pré-carregada com fetchpriority=high, restantes
 imagens lazy, fontes por <link> com preconnect, arte dos bilhetes em WebP e
 não descarregada no telemóvel (onde está escondida). Publicação: ~6 MB.
+Primeira visita no telemóvel: a pesquisa responde sem esperar pelo catálogo
+de aeroportos (secção 3) e os módulos JS descarregam em paralelo
+(modulepreload, secção 15A). Com rede 4G lenta simulada e CPU 4× mais
+lenta, o campo de aeroportos ficava pronto aos ~9,2 s no site publicado (à
+espera de 1 MB de aeroportos e de ~18.000 opções); no build novo, nas mesmas
+condições, aos ~4,3 s.
 Depois de publicar: Google Search Console → adicionar o domínio → Sitemaps →
 submeter /sitemap.xml. Próximo passo sugerido: mais artigos de rota (Dubai,
 Joanesburgo, Cidade do Cabo, Porto) e de viagem (documentos, bagagem),
@@ -619,6 +685,8 @@ calendário (incluindo o cache partilhado), pagamento manual (WhatsApp),
 jornadas de pesquisa e painel ao vivo foi validado com fornecedores
 simulados (42 verificações) e no browser
 (desktop e telemóvel 320–390 px), mais uma consulta real ao calendário da
-SerpApi; o adaptador da Vercel (api/index.mjs) e o build foram testados
-localmente. Estas verificações ainda não estão no repositório como testes
-automáticos.
+SerpApi; o adaptador da Vercel (api/index.mjs), o build, as rotas e os
+redireccionamentos do vercel.json, a primeira visita com rede lenta, a
+letra de 16 px nos campos e Minhas viagens (lista, separadores, painel,
+?ref=) foram testados localmente. Estas verificações ainda não estão no
+repositório como testes automáticos.
