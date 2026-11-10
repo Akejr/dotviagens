@@ -1,7 +1,7 @@
 // All /api/* routes of the Worker. Handlers receive (request, env, ctx, deps)
 // where deps.fetcher is the HTTP client (mockable) and deps.params the URL groups.
 
-import { HttpError, json, defer, clientIp, userAgent } from './http.mjs';
+import { HttpError, json, defer, clientIp, userAgent, cleanText } from './http.mjs';
 import { handleSearch } from './flights.mjs';
 import { handleCalendar } from './calendar.mjs';
 import { db, hasSupabase } from './supabase.mjs';
@@ -24,6 +24,17 @@ const countryOf = request => {
   const code = request.cf?.country || request.headers.get('x-vercel-ip-country') || '';
   return /^[A-Z]{2}$/.test(code) ? code : null;
 };
+
+// Approximate city of the visitor (IP geolocation, shown in the admin next to the visitor):
+// Cloudflare request.cf.city, or Vercel's x-vercel-ip-city with non-ASCII characters percent-encoded.
+const decoded = value => {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+};
+const cityOf = request => cleanText(request.cf?.city || decoded(request.headers.get('x-vercel-ip-city') || ''), 60) || null;
 
 async function customerOf(request, env, deps) {
   try {
@@ -59,6 +70,7 @@ async function logSearch(env, request, info, deps) {
     journey_id: jid,
     journey_key: jid || (sid ? `${sid}|${q.origin}|${q.destination}|${q.passengers}` : null),
     country: countryOf(request),
+    city: cityOf(request),
     customer_id: await customerOf(request, env, deps),
   }, { returning: false });
 }
@@ -84,6 +96,7 @@ async function logCalendar(env, request, info, deps) {
     duration_ms: info.durationMs,
     visitor: await visitorOf(env, request),
     country: countryOf(request),
+    city: cityOf(request),
     customer_id: await customerOf(request, env, deps),
   }, { returning: false });
 }

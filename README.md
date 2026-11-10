@@ -60,6 +60,7 @@ Supabase (já aplicadas em `ycbmqytyfdkrpxvjcblk`):
 5. `20261108191510_dot_viagens_profit.sql` (lucro inserido no painel e vendas fora do site)
 6. `20261110155528_dot_viagens_alerts_settings_cache.sql` (avisos de preço, taxa DOT
    no painel, cache partilhado das pesquisas e pausa da SerpApi)
+7. `20261110183804_dot_viagens_search_city.sql` (cidade aproximada de cada pesquisa)
 
 ## Blog
 

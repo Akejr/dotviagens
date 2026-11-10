@@ -6,7 +6,8 @@ menos pesquisas pagas: os cartões de datas mostram o preço do calendário e s�
 o dia escolhido é pesquisado, o calendário só carrega quando abre, durações
 padrão na ida e volta, calendário pedido para 1 adulto, cache partilhado das
 pesquisas (25 minutos), pausa automática depois de um erro de limite da
-SerpApi e cota da SerpApi no painel (aviso aos 80%); todos os SMS sem acentos.
+SerpApi e cota da SerpApi no painel (aviso aos 80%); todos os SMS sem acentos;
+localização aproximada (cidade e país) de cada pesquisa ao lado do visitante.
 6.ª revisão: o lucro de cada venda é inserido no
 painel depois da compra (a taxa de 11% deixou de contar como lucro), vendas
 feitas fora do site registadas à mão, painel legível no telemóvel (tabelas em
@@ -503,6 +504,14 @@ Secções:
   O país vem do Cloudflare (request.cf.country) ou, na Vercel, do cabeçalho
   x-vercel-ip-country; o IP vem de cf-connecting-ip ou x-real-ip. Em
   desenvolvimento local o simulador devolve sempre US.
+  Localização da pesquisa: cidade e país, ao lado do visitante (ícone de
+  alfinete), nas Pesquisas e em "Pesquisas agora" da Visão geral. A cidade vem
+  de request.cf.city ou do cabeçalho x-vercel-ip-city da Vercel (descodificado,
+  sem caracteres de controlo, até 60 caracteres) e fica em search_logs.city.
+  É a localização do IP, aproximada: redes móveis e VPN podem mostrar outra
+  cidade ou outro país. As pesquisas anteriores a 10/11/2026 só têm o país.
+  Nos ecrãs até 1180 px o visitante e a localização passam para uma linha
+  por baixo da rota (antes ficavam escondidos).
 - Câmbio e preço: definir 1 R$ = X Kz, exemplo com a taxa DOT, histórico; e
   "Taxa DOT": percentagem em vigor (com quem a mudou e quando), nova taxa de
   0% a 50% com até 2 casas decimais, exemplo de R$ 3.500 com a taxa escrita
@@ -588,7 +597,12 @@ Migrações (aplicar por ordem, uma vez, pelo MCP do Supabase ou no SQL Editor):
    pg_cron dot-purge-flight-cache (minuto 41) e dot-expire-price-alerts
    (minuto 47). admin_live_state passa a devolver pricing, alerts e
    provider_pause.
-As seis estão aplicadas no projecto ycbmqytyfdkrpxvjcblk (a 6.ª a 10/11/2026).
+7. supabase/migrations/20261110183804_dot_viagens_search_city.sql:
+   search_logs.city (cidade aproximada do IP, até 60 caracteres);
+   admin_search_journeys passa a devolver city (país e cidade da primeira
+   consulta com cidade da jornada).
+As sete estão aplicadas no projecto ycbmqytyfdkrpxvjcblk (a 6.ª e a 7.ª a
+10/11/2026).
 Dados de teste apagados a 8/11/2026 (reservas, passageiros, eventos de
 pagamento, SMS, pesquisas, auditoria e códigos OTP; booking_ref_seq voltou a
 1). Ficaram a conta de administrador, as sessões, o câmbio e o cache do
@@ -902,7 +916,8 @@ calendário (incluindo o cache partilhado), pagamento manual (WhatsApp),
 jornadas de pesquisa, painel ao vivo, taxa DOT alterável, pesquisas
 partilhadas, pausa por limite da SerpApi, cota da conta e avisos de preço
 (limiares de 50 000 e 100 000 Kz, SMS falhado, cliente bloqueado, limite de
-10) foi validado com fornecedores simulados (54 verificações) e no browser
+10) e a localização das pesquisas foi validado com fornecedores simulados
+(55 verificações) e no browser
 (desktop e telemóvel 320–390 px; na 7.ª revisão: cartões de datas sem
 pesquisas extra, setas, toque no cartão do voo, janela do aviso com e sem
 sessão, link curto ?v=, calendário da home sem pré-carregamento e painel

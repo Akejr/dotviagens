@@ -536,11 +536,16 @@ const tripDates = j => `${shortDay(j.departure_date)}${j.return_date ? ` — ${s
 const bestBrl = j => j.outbound_min_brl ?? j.view_min_brl ?? j.return_min_brl;
 const priceFrom = j => (bestBrl(j) == null ? (j.last_status === 'error' ? 'Erro do fornecedor' : 'Sem voos') : `desde ${priceText(bestBrl(j))}`);
 const whoText = j => (j.customer ? j.customer.name || formatPhone(j.customer.phone) : `Visitante ${String(j.visitor || '').slice(0, 6)}`);
+// Where the search was made: city and country from the IP (Vercel/Cloudflare geolocation), approximate.
+const placeOf = j => {
+  const place = [j.city, j.country ? countryName(j.country) : ''].filter(Boolean).join(', ');
+  return place ? `<span class="place" title="Localização aproximada, pelo IP">${icon('pin', 12)}${esc(place)}</span>` : '';
+};
 
 function activityList(rows) {
   if (!rows.length) return emptyState('activity', 'Ainda não há pesquisas registadas.', 'Assim que alguém pesquisar no site, a pesquisa aparece aqui em segundos.');
   return `<ul class="activity-list">${rows.map(j => `<li><span class="activity-icon">${icon(j.round_trip ? 'swap' : 'plane', 17)}</span>
-    <div><strong>${esc(cityName(j.origin))} → ${esc(cityName(j.destination))}</strong><small>${esc(tripDates(j))} · ${plural(j.passengers, 'adulto', 'adultos')} · ${esc(whoText(j))}</small></div>
+    <div><strong>${esc(cityName(j.origin))} → ${esc(cityName(j.destination))}</strong><small>${esc(tripDates(j))} · ${plural(j.passengers, 'adulto', 'adultos')}</small><small class="activity-who">${esc(whoText(j))}${placeOf(j) ? ` · ${placeOf(j)}` : ''}</small></div>
     <div class="activity-meta"><b>${esc(priceFrom(j))}</b><small data-ago="${esc(j.last_at)}">${esc(ago(j.last_at))}</small></div></li>`).join('')}</ul>`;
 }
 
@@ -730,10 +735,10 @@ function journeyRow(j, index, previous) {
   const progress = j.chosen_outbound_date
     ? `Ida escolhida a ${shortDay(j.chosen_outbound_date)}${j.chosen_return_date ? ` · volta a ${shortDay(j.chosen_return_date)}` : ''}`
     : j.round_trip ? 'A escolher a ida' : 'A comparar datas';
-  const country = j.country ? countryName(j.country) : '';
+  const place = placeOf(j);
   const who = j.customer
-    ? `<strong>${esc(j.customer.name || 'Cliente')}</strong><small>${esc(formatPhone(j.customer.phone))}${country ? ` · ${esc(country)}` : ''}</small>`
-    : `<strong>Visitante ${esc(String(j.visitor || '').slice(0, 6))}</strong><small>${esc(country || 'Sem sessão iniciada')}</small>`;
+    ? `<strong>${esc(j.customer.name || 'Cliente')}</strong><small>${esc(formatPhone(j.customer.phone))}</small>${place ? `<small>${place}</small>` : ''}`
+    : `<strong>Visitante ${esc(String(j.visitor || '').slice(0, 6))}</strong><small>${place || 'Localização desconhecida'}</small>`;
   const calls = `${plural(j.calls, 'consulta', 'consultas')}${j.errors ? ` · ${plural(j.errors, 'erro', 'erros')}` : ''}`;
   return `<article class="journey${isNew ? ' new' : ''}${updated ? ' updated' : ''}" data-key="${esc(j.key)}">
     <button class="journey-main" type="button" aria-expanded="false" aria-controls="calls-${index}">
