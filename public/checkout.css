@@ -48,19 +48,19 @@
 .input-prefix b{padding:0 12px 0 14px;font-size:14px;color:#6c7166;border-right:1px solid #eceee7;height:26px;display:flex;align-items:center}
 .input-prefix input{border:0!important;box-shadow:none!important;height:46px}
 
-/* Public pages: the label sits inside the field, like the home search box */
-:is(.checkout-page,.trips-page) .form-field{position:relative;gap:3px;justify-content:center;min-height:64px;padding:10px 15px 9px;border:1px solid #e6e1d7;border-radius:14px;background:#fff;transition:border-color .2s,box-shadow .2s,background .2s}
-:is(.checkout-page,.trips-page) .form-field>span{font-size:10px;font-weight:700;letter-spacing:.9px;text-transform:uppercase;color:#8a8f84}
-:is(.checkout-page,.trips-page) .form-field>span small{text-transform:none;letter-spacing:0;font-weight:500;color:#a3a79b;margin-left:4px}
-:is(.checkout-page,.trips-page) .form-field input,:is(.checkout-page,.trips-page) .form-field select,:is(.checkout-page,.trips-page) .form-field textarea{height:28px;padding:0;border:0;border-radius:0;background:transparent;font-size:15px;font-weight:600;box-shadow:none!important}
-:is(.checkout-page,.trips-page) .form-field select{cursor:pointer;margin-left:-2px}
-:is(.checkout-page,.trips-page) .form-field:hover{border-color:#f4b18f}
-:is(.checkout-page,.trips-page) .form-field:focus-within{border-color:var(--orange);box-shadow:0 0 0 3px #f46b2c1f}
-:is(.checkout-page,.trips-page) .form-field:has([aria-invalid=true]){border-color:#d9541e;background:#fffaf7}
-:is(.checkout-page,.trips-page) .form-field .input-prefix{border:0;border-radius:0;background:none;box-shadow:none!important}
-:is(.checkout-page,.trips-page) .form-field .input-prefix b{padding:0 10px 0 0;height:22px;font-size:15px;color:#c24a00;border-right:1px solid #f1e6d8}
-:is(.checkout-page,.trips-page) .form-field .input-prefix input{height:28px;padding-left:10px}
-:is(.checkout-page,.trips-page) .otp-input{height:42px!important;font-size:26px!important}
+/* Public pages (and the price-alert dialog of the results): the label sits inside the field, like the home search box */
+:is(.checkout-page,.trips-page,.alert-dialog) .form-field{position:relative;gap:3px;justify-content:center;min-height:64px;padding:10px 15px 9px;border:1px solid #e6e1d7;border-radius:14px;background:#fff;transition:border-color .2s,box-shadow .2s,background .2s}
+:is(.checkout-page,.trips-page,.alert-dialog) .form-field>span{font-size:10px;font-weight:700;letter-spacing:.9px;text-transform:uppercase;color:#8a8f84}
+:is(.checkout-page,.trips-page,.alert-dialog) .form-field>span small{text-transform:none;letter-spacing:0;font-weight:500;color:#a3a79b;margin-left:4px}
+:is(.checkout-page,.trips-page,.alert-dialog) .form-field input,:is(.checkout-page,.trips-page,.alert-dialog) .form-field select,:is(.checkout-page,.trips-page,.alert-dialog) .form-field textarea{height:28px;padding:0;border:0;border-radius:0;background:transparent;font-size:15px;font-weight:600;box-shadow:none!important}
+:is(.checkout-page,.trips-page,.alert-dialog) .form-field select{cursor:pointer;margin-left:-2px}
+:is(.checkout-page,.trips-page,.alert-dialog) .form-field:hover{border-color:#f4b18f}
+:is(.checkout-page,.trips-page,.alert-dialog) .form-field:focus-within{border-color:var(--orange);box-shadow:0 0 0 3px #f46b2c1f}
+:is(.checkout-page,.trips-page,.alert-dialog) .form-field:has([aria-invalid=true]){border-color:#d9541e;background:#fffaf7}
+:is(.checkout-page,.trips-page,.alert-dialog) .form-field .input-prefix{border:0;border-radius:0;background:none;box-shadow:none!important}
+:is(.checkout-page,.trips-page,.alert-dialog) .form-field .input-prefix b{padding:0 10px 0 0;height:22px;font-size:15px;color:#c24a00;border-right:1px solid #f1e6d8}
+:is(.checkout-page,.trips-page,.alert-dialog) .form-field .input-prefix input{height:28px;padding-left:10px}
+:is(.checkout-page,.trips-page,.alert-dialog) .otp-input{height:42px!important;font-size:26px!important}
 
 .form-hint{display:flex;gap:8px;align-items:flex-start;font-size:12px;color:#858b7f;line-height:1.6;margin:12px 0 0}
 .form-hint svg{color:var(--orange);margin-top:2px}

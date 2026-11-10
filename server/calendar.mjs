@@ -6,6 +6,7 @@ import { airports } from './airport-codes.mjs';
 import { HttpError, json, readJson, assertSameOrigin, isoDate, defer } from './http.mjs';
 import { noResults } from './flights.mjs';
 import { db, hasSupabase } from './supabase.mjs';
+import { pausedUntil, pauseProvider, pauseMessage } from './provider.mjs';
 
 const DAY_MS = 86400000;
 const MAX_AHEAD_DAYS = 330;
@@ -82,7 +83,7 @@ export function normalizeCalendar(data, q) {
   return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
-async function fetchPrices(env, q, key, fetcher, hooks) {
+async function fetchPrices(env, q, key, fetcher, hooks, onLimit = () => 0) {
   const started = Date.now();
   const report = (status, prices = [], errorCode = null) => {
     try {
@@ -122,7 +123,11 @@ async function fetchPrices(env, q, key, fetcher, hooks) {
     throw fail(502, 'Os preços do calendário não estão disponíveis agora.', 'PROVIDER_UNAVAILABLE');
   }
   if (response.status === 401 || response.status === 403) throw fail(502, 'A SerpApi recusou a chave de acesso.', 'PROVIDER_AUTH');
-  if (response.status === 429) throw fail(429, 'O limite de pesquisas da SerpApi foi atingido.', 'PROVIDER_LIMIT');
+  if (response.status === 429) {
+    // Quota or hourly limit reached: SerpApi is paused for a few minutes on every instance.
+    const until = onLimit();
+    throw fail(429, until ? pauseMessage(until) : 'Os preços do calendário não estão disponíveis agora.', 'PROVIDER_LIMIT');
+  }
   if (!response.ok || (data?.error && !noResults(data))) throw fail(502, 'Os preços do calendário não estão disponíveis agora.', 'PROVIDER_ERROR');
   const prices = normalizeCalendar(data, q);
   remember(key, prices, Date.now() + TTL_MS);
@@ -185,7 +190,9 @@ export async function handleCalendar(request, env, ctx, deps, hooks = {}) {
         remember(key, shared.prices, Math.min(Date.parse(shared.expires_at), Date.now() + TTL_MS));
         return { prices: shared.prices, cached: true };
       }
-      const prices = await fetchPrices(env, q, key, deps.fetcher, hooks);
+      const paused = await pausedUntil(env, deps);
+      if (paused > Date.now()) throw new HttpError(503, pauseMessage(paused), 'PROVIDER_PAUSED');
+      const prices = await fetchPrices(env, q, key, deps.fetcher, hooks, () => pauseProvider(env, ctx, deps, 'limit'));
       shareLater(env, ctx, deps, key, prices);
       return { prices, cached: false };
     })().finally(() => pending.delete(key)));

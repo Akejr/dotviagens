@@ -6,7 +6,7 @@ import { HttpError, json, readJson, assertSameOrigin, publicOrigin, defer, clean
 import { db } from './supabase.mjs';
 import { requireUser, secret } from './auth.mjs';
 import { verifyItinerary, makeQuote, readQuote, QUOTE_TTL_MS } from './offers.mjs';
-import { currentRate, priceAoa } from './rates.mjs';
+import { currentRate, currentMarkup, priceAoa } from './rates.mjs';
 import { validatePassengers } from './passengers.mjs';
 import { hasWiza, createCharge, paymentStatus, transactionInfo, wizaMessage } from './wiza.mjs';
 import { hasVero, isVeroSandbox, ensureCustomer, issueInvoice, invoiceStatus } from './vero.mjs';
@@ -65,13 +65,13 @@ function lastTravelDate(verified) {
   return /^\d{4}-\d{2}-\d{2}$/.test(arrival || '') ? arrival : verified.query.returnDate || verified.query.departureDate;
 }
 
-// Final price = converted value + DOT service fee. Only the total reaches the customer.
+// Final price = converted value + DOT service fee (set in the admin). Only the total reaches the customer.
 async function priceFor(env, deps, verified) {
-  const rate = await currentRate(env, deps, { fresh: true });
+  const [rate, markup] = await Promise.all([currentRate(env, deps, { fresh: true }), currentMarkup(env, deps, { fresh: true })]);
   if (!rate?.rate) {
     throw new HttpError(503, 'A compra está temporariamente indisponível: o câmbio do dia ainda não foi definido.', 'NO_RATE');
   }
-  const price = priceAoa(verified.priceBrl, rate.rate);
+  const price = priceAoa(verified.priceBrl, rate.rate, markup.markupBp);
   if (price.amountAoa < MIN_KZ) throw new HttpError(400, 'Valor demasiado baixo para pagamento.', 'AMOUNT_TOO_LOW');
   return { rate, ...price };
 }

@@ -1,11 +1,13 @@
 # DOT Viagens
 
 Pesquisa e compra de voos em kwanzas: selecção de ida e volta, calendário com o
-preço indicativo de cada dia, preço final = câmbio do dia + taxa DOT de 11%,
-verificação do telemóvel por SMS, dados dos passageiros, pagamento manual pelo
+preço indicativo de cada dia, preço final = câmbio do dia + taxa DOT (11% por
+defeito, alterável no painel), verificação do telemóvel por SMS, avisos de preço
+por SMS (até 2 por viagem), dados dos passageiros, pagamento manual pelo
 WhatsApp ou Multicaixa Express e referência (Wiza), factura certificada (Vero),
 área Minhas viagens, blog em `/blog` e painel de administração em tempo real em
-`/admin`.
+`/admin` (com a cota da SerpApi e a pausa automática das pesquisas depois de
+um erro de limite).
 
 A documentação completa está em **MECANICA_DO_SISTEMA.txt**.
 
@@ -56,6 +58,8 @@ Supabase (já aplicadas em `ycbmqytyfdkrpxvjcblk`):
 3. `20261107233029_dot_viagens_calendar_cache.sql` (cache partilhado do calendário)
 4. `20261108031554_dot_viagens_manual_payment.sql` (pagamento manual pelo WhatsApp)
 5. `20261108191510_dot_viagens_profit.sql` (lucro inserido no painel e vendas fora do site)
+6. `20261110155528_dot_viagens_alerts_settings_cache.sql` (avisos de preço, taxa DOT
+   no painel, cache partilhado das pesquisas e pausa da SerpApi)
 
 ## Blog
 

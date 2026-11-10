@@ -1,5 +1,13 @@
 DOT VIAGENS — DOCUMENTAÇÃO DO SISTEMA
-Revisão: 8 de Novembro de 2026 (6.ª) — o lucro de cada venda é inserido no
+Revisão: 10 de Novembro de 2026 (7.ª) — avisos de preço por SMS nos
+resultados (secção 9A) e nova secção Avisos no painel; tocar num cartão de
+voo abre e fecha o percurso; taxa DOT alterável no painel (Câmbio e preço);
+menos pesquisas pagas: os cartões de datas mostram o preço do calendário e só
+o dia escolhido é pesquisado, o calendário só carrega quando abre, durações
+padrão na ida e volta, calendário pedido para 1 adulto, cache partilhado das
+pesquisas (25 minutos), pausa automática depois de um erro de limite da
+SerpApi e cota da SerpApi no painel (aviso aos 80%); todos os SMS sem acentos.
+6.ª revisão: o lucro de cada venda é inserido no
 painel depois da compra (a taxa de 11% deixou de contar como lucro), vendas
 feitas fora do site registadas à mão, painel legível no telemóvel (tabelas em
 cartões), imagem de partilha nas redes = banner da home, dados de teste
@@ -23,10 +31,11 @@ fim dos textos de pré-lançamento.
 1. PRODUTO E LIMITES
 Pesquisa real via SerpApi Google Flights. O fornecedor devolve preços em BRL;
 o site mostra kwanzas: preço final = preço em BRL x câmbio do dia (arredondado
-para cima ao kwanza) + taxa DOT de 11% sobre esse valor (também arredondada
-para cima). O cliente vê só o preço final, sem a taxa à parte e sem o câmbio.
-O câmbio é definido no painel /admin; a taxa é MARKUP_BP em server/rates.mjs.
-A taxa de 11% faz parte do preço, mas NÃO é o lucro: o lucro real de cada
+para cima ao kwanza) + taxa DOT sobre esse valor (11% por defeito, também
+arredondada para cima). O cliente vê só o preço final, sem a taxa à parte e
+sem o câmbio. O câmbio e a taxa DOT (0% a 50%) definem-se no painel /admin,
+em Câmbio e preço (secção 8).
+A taxa DOT faz parte do preço, mas NÃO é o lucro: o lucro real de cada
 venda (total pago menos o custo do bilhete) é inserido no painel pela equipa
 depois da compra, e é esse valor que o painel soma como lucro (secção 12).
 O cliente escolhe ida, depois volta compatível, revê o resumo e compra:
@@ -101,7 +110,8 @@ calendários (price-calendar.js, ver secção 8A) e selecção de adultos;
 carousel.js gere o slideshow. app.js carrega interactions.js e carousel.js
 em paralelo. O formulário tem onsubmit="return false": um toque em Pesquisar
 antes de o JS carregar já não recarrega a página. /?destino=LIS#pesquisa
-preenche o destino e já prepara os preços do calendário; os artigos do blog
+preenche o destino (os preços do calendário só carregam quando o calendário
+abre); os artigos do blog
 usam estes endereços nos botões "Pesquisar voos para…". Na ida e volta, escolher a ida mantém a duração
 da viagem (a volta acompanha) e abre logo o calendário da volta.
 results.js gere estados outbound, return e summary, datas, filtros e paginação.
@@ -115,10 +125,18 @@ Cada pesquisa da página de resultados envia sid (sessão do browser) e jid
 para o painel agrupar as datas vizinhas, idas e voltas numa só linha.
 No resumo, "Comprar esta viagem" grava as ofertas assinadas em sessionStorage
 (chave dot-checkout-v1) e abre /compra.
-Cada pedido de pesquisa leva kind (view, prefetch, return, return-prefetch) e
-sid (id de sessão do separador) apenas para o painel de pesquisas.
-Cache do browser: chave dot-flight-cache-v3. Entradas expiradas continuam
+Cada pedido de pesquisa leva kind (view para a ida, return para a volta; os
+registos antigos também têm prefetch e return-prefetch) e sid (id de sessão
+do separador) apenas para o painel de pesquisas.
+Cache do browser: chave dot-flight-cache-v3, 25 minutos a contar da pesquisa
+(o servidor diz a idade do resultado em age). Entradas expiradas continuam
 visíveis e seleccionáveis; só a decisão de voltar a consultar usa a validade.
+Cartões de voo: tocar em qualquer parte do cartão abre e fecha o percurso
+(como o botão "Ver percurso"); o botão Seleccionar, as ligações e o próprio
+percurso aberto não fecham nada, e seleccionar texto também não.
+Link curto dos SMS de aviso: /resultados?v=NBJLIS2612182612282 (origem,
+destino, ida AAMMDD, volta AAMMDD opcional e adultos 1–4). results.js
+converte-o na pesquisa normal e reescreve o endereço.
 O cabeçalho persistente inclui voos, destinos, funcionamento e Minhas viagens.
 
 5. IDA E VOLTA — PONTO CRÍTICO
@@ -135,8 +153,9 @@ NÃO somar preço de ida + preço de volta: ambos podem ser totais ida/volta.
 NÃO multiplicar pelo número de adultos: adults já foi enviado ao fornecedor.
 O resumo mostra ambos os percursos e permite alterar qualquer selecção.
 Alterar a ida invalida a volta e consulta novamente através do novo token.
-Alterar data de ida limpa ambas as selecções; o regresso permanece na data
-original. A etapa de volta tem cartões de datas e calendário próprios.
+Alterar a data de ida limpa ambas as selecções e mantém a duração da viagem:
+a volta acompanha (como no calendário da home e nos preços dos cartões de
+datas). A etapa de volta tem cartões de datas e calendário próprios.
 Alterar a data de volta mantém a ida seleccionada e invalida a volta anterior.
 resolveReturns consulta as idas para a nova combinação de datas, encontra os
 mesmos segmentos (número de voo, origem, destino e partida), obtém um token
@@ -150,23 +169,57 @@ a integração actual NÃO chama booking_options.
 Documentação: https://serpapi.com/google-flights-api
 
 6. ECONOMIA DE REQUISIÇÕES
+Cada pesquisa de voos e cada mês do calendário é uma pesquisa paga da SerpApi
+(as repetidas dentro de 1 hora são grátis no próprio fornecedor; as "sem
+voos" também contam). Regras actuais:
 - Autocomplete usa ficheiro estático local. Nenhuma consulta SerpApi ao digitar.
-- Consulta a data seleccionada primeiro, seguida das restantes datas visíveis
-  automaticamente, com dois trabalhadores em paralelo por janela.
-- Os cinco cartões mostram A consultar durante o carregamento e depois o menor
-  preço encontrado. Não é necessário clicar para ver preços de outros dias.
+- Só o dia escolhido é pesquisado (também na etapa da volta). Os cinco cartões
+  de datas mostram o preço do calendário de cada dia ("indicativo ≈ …", um
+  pedido por mês, partilhado 6 horas por todos os visitantes); "Ver preço"
+  quando o calendário não tem esse dia. O preço exacto aparece quando o
+  cliente escolhe o dia. As setas só mudam os dias mostrados, sem pesquisar.
+- O calendário só carrega quando abre (home e resultados): nada ao escolher a
+  origem ou o destino, ao passar o rato, ao focar as datas ou ao passar o rato
+  na seta do mês seguinte. Ao folhear os meses, o pedido espera 450 ms depois
+  do último toque (só o mês onde o cliente pára é pedido).
+- Calendário de ida e volta com durações padrão (3, 5, 7, 10, 14, 21, 30, 45
+  ou 60 dias, a mais próxima da viagem): um mês guardado serve todas as
+  viagens parecidas. A legenda diz "Ida e volta de ~N dias".
+- Calendário pedido sempre para 1 adulto e multiplicado pelos adultos no
+  browser: uma cache serve 1 a 4 adultos (preço indicativo; o exacto vem da
+  pesquisa, que leva os adultos).
 - Na volta, cada nova data pode exigir duas chamadas sem cache: obter um token
   actualizado da mesma ida e consultar os regressos compatíveis.
-- A navegação interrompe a fila antiga; pedidos já iniciados podem terminar.
 - Não inventa tarifas para datas por consultar, erros ou ausência de voos.
 - Mais baratos, mais rápidos, filtros e Ver mais são operações locais.
-- Browser: cache por consulta canónica, TTL 10 minutos, sessionStorage e memória,
-  máximo 35 entradas; pedidos idênticos em curso partilham a mesma Promise.
-- Servidor: cache em memória por consulta canónica, TTL 10 minutos, máximo 100
-  entradas, deduplicação de consultas concorrentes no MESMO isolate.
+- Browser: cache por consulta canónica, 25 minutos a contar da pesquisa
+  (menos a idade que o servidor indica), sessionStorage e memória, máximo 35
+  entradas; pedidos idênticos em curso partilham a mesma Promise.
+- Servidor: cache em memória por consulta canónica (até 10 minutos, nunca
+  depois dos 25 minutos da pesquisa), máximo 100 entradas, deduplicação de
+  consultas concorrentes no MESMO isolate.
+- Cache partilhado das pesquisas (server/provider.mjs): tabela flight_cache,
+  chave = SHA-256 da consulta canónica, 25 minutos a contar da pesquisa.
+  Qualquer instância e qualquer visitante reutiliza a mesma pesquisa sem nova
+  consulta (as ofertas continuam compráveis: o limite da compra é 30 minutos).
+  A escrita faz-se depois de responder; se o Supabase falhar, segue para a
+  SerpApi. pg_cron apaga as linhas expiradas de hora a hora.
+- Pausa depois de um erro de limite (HTTP 429 da SerpApi, cota do mês ou da
+  hora): 10 minutos sem consultas em todas as instâncias (app_settings
+  provider_pause, lido a cada 30 s). Pesquisas e calendário respondem 503
+  PROVIDER_PAUSED com "As pesquisas de voos estão em pausa por alguns
+  minutos. Tenta novamente às HH:MM ou fala connosco no WhatsApp."; as
+  pesquisas já guardadas continuam a responder. Os pedidos em pausa não ficam
+  em search_logs. O painel mostra a pausa (aviso ao vivo) e "Retomar agora".
+- Cota da SerpApi no painel (Account API, grátis, lida no servidor e guardada
+  60 s; a chave e o e-mail da conta nunca saem do servidor): plano, usadas,
+  restantes e última hora; aviso a partir de 80% usados.
 - Não enviamos no_cache=true; mantemos o cache do próprio fornecedor activo.
 - Cotação e compra NÃO fazem novas pesquisas pagas: usam as ofertas assinadas.
-- Ordem de grandeza sem cache: ida e volta completa ~14 pesquisas; só ida ~5.
+- Os avisos de preço (secção 9A) não fazem pesquisas: usam as dos visitantes.
+- Ordem de grandeza sem cache: só ida 1 pesquisa + 1 mês de calendário (2 se
+  os cinco dias passam de um mês para o outro); ida e volta 1 pesquisa de ida,
+  1–2 de volta e 1–2 meses de calendário. Antes desta revisão: ~14 e ~5.
 
 7. FILTROS
 Companhias derivadas EXCLUSIVAMENTE dos voos da data e etapa actual.
@@ -189,8 +242,16 @@ O browser nunca define preços.
 Câmbio: tabela exchange_rates, vale o registo mais recente. GET /api/rate é
 público (cache 60 s) e devolve rate e markupBp. Contas em inteiros:
 valor convertido = ceil(cêntimos BRL x câmbio / 100);
-taxa DOT = ceil(valor convertido x 1100 / 10000); total = convertido + taxa.
-Exemplo: R$ 10.421 x 225 = 2.344.725 Kz + 257.920 Kz = 2.602.645 Kz.
+taxa DOT = ceil(valor convertido x markup_bp / 10000); total = convertido + taxa.
+Exemplo com 11% (1100): R$ 10.421 x 225 = 2.344.725 Kz + 257.920 Kz = 2.602.645 Kz.
+Taxa DOT: app_settings.markup_bp em pontos base (1100 = 11%, o valor inicial),
+de 0 a 5000 (0% a 50%). Muda-se no painel (Câmbio e preço → Taxa DOT, com
+exemplo e confirmação; POST /api/admin/pricing {markupPercent: "11,5"}) e
+fica na auditoria (pricing.markup, de/para). O servidor lê-a com cache de
+60 s (a cotação e a compra lêem-na sempre de novo); se não a conseguir ler,
+usa 11% (DEFAULT_MARKUP_BP em server/rates.mjs), para os preços nunca
+pararem. Muda logo as pesquisas, o calendário, os avisos e as compras novas;
+as reservas já criadas mantêm o preço.
 O total é o valor cobrado na Wiza e a única linha da factura Vero. A reserva
 guarda base_aoa, fee_aoa e markup_bp como registo de como o preço foi
 calculado; o painel não os usa como receita nem como lucro. O lucro é
@@ -202,14 +263,16 @@ Mínimo de 100 Kz por cobrança (regra da Wiza).
 8A. CALENDÁRIO COM PREÇOS
 Os calendários da home e dos resultados mostram por baixo de cada dia o preço
 indicativo mais baixo, em Kz compactos ("953 mil", "2,6 M"), com câmbio e taxa
-DOT incluídos; os dias mais baratos do mês ficam a verde.
+DOT incluídos; os dias mais baratos do mês ficam a verde. Os cartões de datas
+dos resultados usam os mesmos meses (secção 6).
 POST /api/flights/calendar {origin, destination, passengers 1-4,
 type oneway|return, month YYYY-MM, tripDays? 1-60, fixedOutbound?}
 (server/calendar.mjs) chama a SerpApi Google Flights Calendar API
 (engine=google_flights_calendar): um pedido por mês visto.
 - Só ida: type=2, preço por dia de partida.
-- Ida (ida e volta): type=1 com round_trip_days = duração actual da viagem;
-  o valor é o total de ida e volta de N dias a partir desse dia.
+- Ida (ida e volta): type=1 com round_trip_days = duração padrão mais próxima
+  da viagem (secção 6); o valor é o total de ida e volta de N dias a partir
+  desse dia.
 - Volta: type=1 com fixed_outbound_date=true e date_range_start = ida
   escolhida; o valor de cada dia é o TOTAL da viagem com essa volta.
 Limites: hoje até hoje+330 dias; volta até 62 dias depois da ida; meses fora do
@@ -222,13 +285,14 @@ Velocidade (três níveis de cache, do mais rápido para o mais lento):
    consultado por QUALQUER visitante abre logo para todos os outros. A escrita
    faz-se depois de responder (waitUntil). Se o Supabase falhar, segue para a
    SerpApi (que ainda tem a sua cache gratuita de 1 h).
-Chave: origem|destino|adultos|tipo|início|fim|ida fixa|duração.
-Pré-carregamento (o calendário já tem os preços quando abre):
-- home: ao escolher o destino (ou a origem), 250 ms depois; ao passar o rato
-  ou focar os campos de data; ao passar o rato na seta do mês seguinte;
-- resultados: ao passar o rato ou focar o botão "Data de ida/volta".
-Cada pré-carregamento de um mês novo gasta 1 pesquisa SerpApi (só a primeira
-vez em 6 horas para essa rota e mês). Não há pré-aquecimento por cron.
+Chave: origem|destino|adultos|tipo|início|fim|ida fixa|duração. O browser
+pede sempre 1 adulto e uma duração padrão (secção 6) e multiplica o preço
+pelos adultos.
+Sem pré-carregamento: um mês só é pedido quando o calendário o mostra (ao
+abrir; ao folhear, 450 ms depois do último toque) ou quando os cartões de
+datas dos resultados precisam dele. Cada mês novo gasta 1 pesquisa SerpApi
+(só a primeira vez em 6 horas para essa rota e mês). Não há pré-aquecimento
+por cron.
 Só as chamadas reais à SerpApi ficam em search_logs (kind 'calendar'); não
 entram no feed de pesquisas, só na contagem de consultas.
 Os preços são indicativos (Google Flights Calendar): o valor final é o da
@@ -249,11 +313,57 @@ Admin: só números com role admin ou listados em ADMIN_PHONES recebem SMS;
 números desconhecidos recebem a mesma resposta, sem SMS.
 SMS (Nsangu, https://api.nsangu.com/docs/): cada envio leva Idempotency-Key
 única (otp-<id>, booking-<ref>-paid, booking-<ref>-ticketed-<PNR>,
-booking-<ref>-cancelled); repetições de rede usam a mesma chave.
-Códigos em categoria OTP; avisos em TRANSACTIONAL. Textos em GSM-7 (sem acentos
-que obriguem a UCS-2) para caber num SMS. Rede Movicel (91x, 99x): remetente
+booking-<ref>-cancelled, alert-<id>-1 e alert-<id>-2); repetições de rede usam
+a mesma chave.
+Códigos em categoria OTP; avisos em TRANSACTIONAL. Todos os SMS são texto
+ASCII simples, sem acentos nem símbolos (ascii() em server/sms.mjs: "codigo",
+"Valido", "Nao"; → passa a -), até 160 caracteres: 1 SMS cada. Um só acento
+obrigaria a UCS-2 (partes de 70 caracteres) e custaria mais. Exemplo:
+"DOT Viagens: o teu codigo e 123456. Valido por 5 minutos. Nao o partilhes."
+Rede Movicel (91x, 99x): remetente
 numérico 46554; o formulário avisa o cliente. Cada SMS fica em sms_messages
 (sem o texto das OTP); o estado consulta-se no painel.
+
+9A. AVISOS DE PREÇO (SMS QUANDO O PREÇO BAIXA)
+Nos resultados (etapa da ida, com câmbio definido), por cima dos voos: "Avisa-
+me se o preço baixar · Recebes um SMS quando esta viagem ficar mais barata."
+e o botão "Criar aviso". A janela (#alert-dialog; usa os estilos de
+checkout.css, carregados só quando abre) mostra a viagem, o preço de hoje e
+a regra, e pede o nome e o telemóvel, confirmado com o código SMS (purpose
+login; o cliente fica nos Utilizadores com esse nome). Com sessão iniciada
+basta confirmar ("Vamos avisar-te no …"; pede o nome se a conta não o tem).
+No fim: "Aviso criado! Vais receber um SMS no … quando o preço desta viagem
+baixar." e o botão passa a "Aviso criado".
+POST /api/alerts {query, offer: {offer, query, searchedAt}, names, name?}
+(server/alerts.mjs): exige sessão; a oferta mais barata assinada da pesquisa
+(no máximo 3 horas) é o preço de referência; se search_logs tiver um preço
+mais baixo para a mesma pesquisa nas últimas 3 horas, vale esse. Guarda o
+preço em Kz com o câmbio e a taxa actuais. Um aviso por viagem (repetir
+devolve o existente), no máximo 10 activos por cliente (429 ALERT_LIMIT).
+O que se segue: a mesma rota, datas e número de adultos. Não faz pesquisas
+próprias: depois de cada pesquisa nova à SerpApi (de qualquer visitante, sem
+departure token), checkAlerts compara o menor preço com os avisos activos
+dessa viagem (preço actual, mínimo, número de pesquisas). Os preços do
+calendário nunca disparam avisos.
+No máximo 2 SMS por aviso:
+1. 1.º SMS quando o preço baixa MAIS de 50 000 Kz face ao preço que o cliente
+   viu (FIRST_DROP_KZ);
+2. 2.º SMS, o último, quando baixa pelo menos MAIS 100 000 Kz face ao preço
+   anunciado no 1.º SMS (SECOND_DROP_KZ). O aviso passa a done.
+Texto (1 SMS, ASCII): "DOT Viagens: o preco da viagem Luanda-Lisboa 18/12 a
+28/12 caiu de 2 345 678 Kz para 2 100 000 Kz. Ve: dotviagens.com/resultados?
+v=NBJLIS2612182612281". Se não couber em 160 caracteres usa os códigos dos
+aeroportos e, por fim, tira o link. Os nomes das cidades vêm do browser e o
+servidor limpa-os (só letras ASCII).
+Cada SMS é reservado com uma actualização condicional (alerts_sent N → N+1):
+duas pesquisas ao mesmo tempo não enviam o mesmo SMS duas vezes. Se o SMS
+falhar, o aviso volta ao estado anterior e a pesquisa seguinte tenta de novo
+(mesma Idempotency-Key). Clientes bloqueados não recebem.
+Os avisos terminam depois do 2.º SMS (done), quando a data da ida passa
+(pg_cron dot-expire-price-alerts, de hora a hora: expired) ou no painel
+(Desactivar; Reactivar enquanto a viagem não passou).
+Limite: só há aviso se alguém voltar a pesquisar a mesma viagem; rotas pouco
+procuradas podem não receber aviso.
 
 10. COMPRA E PAGAMENTO (WIZA OU MANUAL) E FACTURA (VERO)
 /compra: Revisão → Contacto (OTP) → Passageiros → Pagamento.
@@ -362,7 +472,8 @@ Tempo real: a cada 3 s o painel consulta GET /api/admin/live (função
 admin_live_state: contadores e última alteração por tema) e recarrega só o
 ecrã cujos dados mudaram, sem perder linhas abertas. Com uma janela de acção
 aberta ou um campo em edição, a actualização espera. Avisos no canto: novo
-pagamento confirmado, nova reserva, pagamento para rever. Contador de bilhetes
+pagamento confirmado, nova reserva, pagamento para rever, novo aviso de preço
+e pesquisas em pausa (limite da SerpApi, com a hora do fim). Contador de bilhetes
 por emitir no menu e no título do separador; ponto verde em Pesquisas quando
 há pesquisas novas. O indicador "Ao vivo · há N s" pausa e retoma.
 Não usa Supabase Realtime: o browser continua sem chaves da base de dados.
@@ -374,7 +485,13 @@ Secções:
   pagas ainda não têm lucro inserido, com ligação para o filtro "Sem lucro".
   Lucro = soma de bookings.profit_aoa das compras pagas ou emitidas (função
   admin_overview: profit_today, profit_30d, profit_total, profit_missing);
-  a taxa de 11% não entra nestas contas.
+  a taxa DOT não entra nestas contas.
+  Cartão "Cota da SerpApi": plano, pesquisas usadas no mês (barra), restantes
+  e última hora; a partir de 80% a barra fica laranja, o cartão avisa e o
+  mosaico "Consultas à SerpApi hoje" mostra a percentagem. Com as pesquisas em
+  pausa (secção 6), aparece no topo "Pesquisas de voos em pausa até HH:MM"
+  com o botão "Retomar agora" (POST /api/admin/provider/resume, auditoria
+  provider.resume).
 - Pesquisas: feed ao vivo com UMA linha por pesquisa de cliente (jornada):
   rota, datas, etapas (datas de ida e de volta comparadas, ida/volta escolhidas),
   menor preço visto pelo cliente e quem pesquisou. Ao abrir a linha vêem-se as
@@ -386,7 +503,18 @@ Secções:
   O país vem do Cloudflare (request.cf.country) ou, na Vercel, do cabeçalho
   x-vercel-ip-country; o IP vem de cf-connecting-ip ou x-real-ip. Em
   desenvolvimento local o simulador devolve sempre US.
-- Câmbio e preço: definir 1 R$ = X Kz, exemplo com a taxa DOT, histórico.
+- Câmbio e preço: definir 1 R$ = X Kz, exemplo com a taxa DOT, histórico; e
+  "Taxa DOT": percentagem em vigor (com quem a mudou e quando), nova taxa de
+  0% a 50% com até 2 casas decimais, exemplo de R$ 3.500 com a taxa escrita
+  e confirmação "Mudar a taxa DOT? De 11% para 12,5%." (secção 8).
+- Avisos: avisos de preço (secção 9A). Mosaicos activos, com SMS enviado e
+  concluídos; filtros Todos, Activos, Com SMS enviado, Concluídos, Expirados
+  e Desactivados; uma linha por aviso com o cliente, a viagem, as datas, o
+  preço visto, o último preço (pesquisas seguidas, mínimo e descida), os SMS
+  enviados (valor e hora de cada um), o estado e as acções Voos (abre o mesmo
+  link do SMS; atenção: pode gastar uma pesquisa), Desactivar e Reactivar
+  (POST /api/admin/alerts/<id> {action: cancel|reactivate}, na auditoria).
+  Por baixo, "Como funcionam" com as regras dos 2 SMS.
 - Compras: total pago pelo cliente e, por baixo, o lucro inserido ("lucro
   por inserir" nas compras pagas sem lucro; filtro "Sem lucro"), coluna
   Pagamento com "Manual · WhatsApp" nas reservas de pagamento manual (o
@@ -419,7 +547,9 @@ Secções:
 - Utilizadores: tornar/retirar admin, bloquear (termina as sessões).
 - SMS: saldo Nsangu, histórico e estado de cada mensagem.
 - Auditoria: todas as alterações feitas no painel (admin_audit).
-- Sistema: variáveis configuradas (sem mostrar valores) e verificação manual.
+- Sistema: variáveis configuradas (sem mostrar valores), preço ao cliente (a
+  taxa muda-se em Câmbio e preço), cota da SerpApi, verificação manual e
+  tarefas automáticas (também as pesquisas partilhadas e os avisos de preço).
 
 13. SUPABASE
 Migrações (aplicar por ordem, uma vez, pelo MCP do Supabase ou no SQL Editor):
@@ -447,7 +577,18 @@ Migrações (aplicar por ordem, uma vez, pelo MCP do Supabase ou no SQL Editor):
    na data de nascimento, nacionalidade e passaporte; admin_overview passa a
    devolver profit_today, profit_30d, profit_total e profit_missing (já não
    devolve fees_*), e invoices_missing ignora as vendas fora do site.
-As cinco estão aplicadas no projecto ycbmqytyfdkrpxvjcblk.
+6. supabase/migrations/20261110155528_dot_viagens_alerts_settings_cache.sql:
+   tabela app_settings (key, value jsonb, updated_at, updated_by; markup_bp =
+   1100 e, durante uma pausa, provider_pause {until, reason, at}); tabela
+   flight_cache (cache_key = SHA-256, data, created_at, expires_at); tabela
+   price_alerts (cliente, estado active|done|expired|cancelled, rota, nomes
+   das cidades, datas, adultos, preço de referência em BRL e Kz, último e
+   menor preço, pesquisas seguidas, alerts_sent 0–2, valor e hora de cada
+   SMS; gatilho touch_updated_at). RLS activo e acesso só do service_role.
+   pg_cron dot-purge-flight-cache (minuto 41) e dot-expire-price-alerts
+   (minuto 47). admin_live_state passa a devolver pricing, alerts e
+   provider_pause.
+As seis estão aplicadas no projecto ycbmqytyfdkrpxvjcblk (a 6.ª a 10/11/2026).
 Dados de teste apagados a 8/11/2026 (reservas, passageiros, eventos de
 pagamento, SMS, pesquisas, auditoria e códigos OTP; booking_ref_seq voltou a
 1). Ficaram a conta de administrador, as sessões, o câmbio e o cache do
@@ -457,7 +598,9 @@ Desde 30/10/2026 o Supabase não concede acesso automático a tabelas novas; a
 migração concede ao service_role apenas select/insert/update/delete e execute.
 O Worker usa SUPABASE_SECRET_KEY (sb_secret_…, só no cabeçalho apikey).
 pg_cron: pesquisas > 7 dias, OTP > 1 dia, sessões terminadas > 7 dias,
-reservas por pagar > 72 h passam a expired.
+reservas por pagar > 72 h passam a expired, calendário e pesquisas
+partilhadas expirados há mais de 1 hora, avisos de preço de viagens que já
+partiram passam a expired.
 
 14. MAPA DE FICHEIROS
 public/home.html, styles.css: apresentação e formulário.
@@ -490,8 +633,12 @@ server/router.mjs: rotas /api e registo das pesquisas.
 server/http.mjs, crypto.mjs, phone.mjs: utilitários.
 server/flights.mjs, airport-codes.mjs: pesquisa, validação e cache SerpApi.
 server/calendar.mjs: preços por dia (SerpApi Google Flights Calendar).
+server/provider.mjs: cache partilhado das pesquisas, pausa depois de um erro
+de limite e cota da conta SerpApi (painel).
+server/alerts.mjs: avisos de preço (criar, seguir, SMS, lista e acções do
+painel).
 server/offers.mjs: assinatura de ofertas e cotações.
-server/rates.mjs: câmbio e taxa DOT (MARKUP_BP).
+server/rates.mjs: câmbio e taxa DOT (app_settings.markup_bp; 11% por defeito).
 server/auth.mjs: OTP e sessões. server/sms.mjs, notify.mjs: Nsangu.
 server/bookings.mjs, passengers.mjs: compra e pagamento.
 server/wiza.mjs, vero.mjs: gateways. server/admin.mjs: API do painel.
@@ -601,7 +748,9 @@ Teste local do build: node scripts/vercel-build.mjs (gera dist-vercel/).
 booking_options/revalidação da tarifa antes de cobrar e emissão automática
 (consolidador ou GDS); crianças e bebés; regras de bagagem; e-mail com bilhete e
 factura (hoje: SMS e Minhas viagens); reembolso integrado; câmbio automático
-(hoje manual); cache distribuído e quotas por utilizador para escala pública;
+(hoje manual); limite de pesquisas por visitante e orçamento diário da
+SerpApi (hoje: cache partilhado, pausa depois de um erro de limite e aviso de
+cota no painel); memória das pesquisas sem voos;
 telemetria sem segredos; políticas de privacidade e consentimento.
 A SerpApi é pesquisa; não é um sistema de emissão ou garantia tarifária.
 O preço pode mudar até à emissão: a equipa confirma antes de emitir e, se a
@@ -750,10 +899,14 @@ software. Incluí-lo sempre no ZIP e entregar uma cópia TXT separada.
 Testes automáticos do projecto: 14 (pesquisa, tokens, preços, cache, validação,
 filtros). O fluxo de compra, OTP, pagamentos, callbacks, factura, taxa DOT,
 calendário (incluindo o cache partilhado), pagamento manual (WhatsApp),
-jornadas de pesquisa e painel ao vivo foi validado com fornecedores
-simulados (43 verificações, incluindo o lucro inserido e as vendas fora do
-site) e no browser
-(desktop e telemóvel 320–390 px), mais uma consulta real ao calendário da
+jornadas de pesquisa, painel ao vivo, taxa DOT alterável, pesquisas
+partilhadas, pausa por limite da SerpApi, cota da conta e avisos de preço
+(limiares de 50 000 e 100 000 Kz, SMS falhado, cliente bloqueado, limite de
+10) foi validado com fornecedores simulados (54 verificações) e no browser
+(desktop e telemóvel 320–390 px; na 7.ª revisão: cartões de datas sem
+pesquisas extra, setas, toque no cartão do voo, janela do aviso com e sem
+sessão, link curto ?v=, calendário da home sem pré-carregamento e painel
+com Avisos, taxa DOT, cota e pausa), mais uma consulta real ao calendário da
 SerpApi; o adaptador da Vercel (api/index.mjs), o build, as rotas e os
 redireccionamentos do vercel.json, a primeira visita com rede lenta, a
 letra de 16 px nos campos e Minhas viagens (lista, separadores, painel,

@@ -4,7 +4,8 @@
 import { HttpError, json, readJson, assertSameOrigin, cleanText, isoDate } from './http.mjs';
 import { db, hasSupabase, searchTerm } from './supabase.mjs';
 import { requireAdmin, forgetSessionsOf, adminPhones } from './auth.mjs';
-import { currentRate, forgetRate, luandaToday, MARKUP_BP } from './rates.mjs';
+import { currentRate, currentMarkup, forgetRate, luandaToday, validMarkup, MAX_MARKUP_BP } from './rates.mjs';
+import { serpAccount, pausedUntil, resumeProvider } from './provider.mjs';
 import { hasSms, smsBalance, smsStatus, smsText } from './sms.mjs';
 import { hasWiza } from './wiza.mjs';
 import { hasVero, isVeroSandbox } from './vero.mjs';
@@ -71,22 +72,60 @@ export async function live(request, env, ctx, deps) {
 export async function overview(request, env, ctx, deps) {
   await requireAdmin(request, env, deps);
   const store = db(env, deps.fetcher);
-  const [stats, rate, sms] = await Promise.all([
+  const [stats, rate, sms, markup, serp, paused] = await Promise.all([
     store.rpc('admin_overview'),
     currentRate(env, deps, { fresh: true }).catch(() => null),
     cachedBalance(env, deps),
+    currentMarkup(env, deps, { fresh: true }),
+    serpAccount(env, deps),
+    pausedUntil(env, deps).catch(() => 0),
   ]);
-  return json({ stats, rate, sms, pricing: { markupBp: MARKUP_BP }, today: luandaToday(), integrations: integrations(env), serverTime: nowIso() });
+  return json({
+    stats, rate, sms, serp,
+    provider: { pausedUntil: paused ? new Date(paused).toISOString() : null },
+    pricing: { markupBp: markup.markupBp },
+    today: luandaToday(), integrations: integrations(env), serverTime: nowIso(),
+  });
 }
 
 export async function listRates(request, env, ctx, deps) {
   await requireAdmin(request, env, deps);
-  const rows = await db(env, deps.fetcher).select('exchange_rates', {
-    select: 'id,rate,effective_date,note,created_at,creator:customers(name,phone)',
-    order: 'created_at.desc',
-    limit: 60,
-  });
-  return json({ rows, today: luandaToday(), pricing: { markupBp: MARKUP_BP } });
+  const [rows, markup] = await Promise.all([
+    db(env, deps.fetcher).select('exchange_rates', {
+      select: 'id,rate,effective_date,note,created_at,creator:customers(name,phone)',
+      order: 'created_at.desc',
+      limit: 60,
+    }),
+    currentMarkup(env, deps, { fresh: true }),
+  ]);
+  return json({ rows, today: luandaToday(), pricing: markup });
+}
+
+// DOT fee on top of the converted price: "11", "11,5" or "12.25" (%), 0% to 50%.
+export async function setMarkup(request, env, ctx, deps) {
+  assertSameOrigin(request);
+  const session = await requireAdmin(request, env, deps);
+  const body = await readJson(request, 2000);
+  const percent = Number(String(body.markupPercent ?? '').replace('%', '').replace(',', '.').trim());
+  const markupBp = Math.round(percent * 100);
+  if (!Number.isFinite(percent) || String(body.markupPercent ?? '').trim() === '' || !validMarkup(markupBp)) {
+    throw new HttpError(400, `Indica a taxa em percentagem, de 0 a ${MAX_MARKUP_BP / 100} (por exemplo 11 ou 11,5).`, 'INVALID_MARKUP');
+  }
+  const store = db(env, deps.fetcher);
+  const before = await currentMarkup(env, deps, { fresh: true });
+  await store.upsert('app_settings', [{ key: 'markup_bp', value: markupBp, updated_at: nowIso(), updated_by: session.customer.id }], 'key');
+  forgetRate();
+  await audit(store, session, 'pricing.markup', `${markupBp / 100}%`, { from: before.markupBp, to: markupBp });
+  return json({ pricing: await currentMarkup(env, deps, { fresh: true }) });
+}
+
+// Ends the pause of SerpApi calls (for example after renewing the plan).
+export async function resumeSearches(request, env, ctx, deps) {
+  assertSameOrigin(request);
+  const session = await requireAdmin(request, env, deps);
+  await resumeProvider(env, deps);
+  await audit(db(env, deps.fetcher), session, 'provider.resume', 'serpapi');
+  return json({ ok: true });
 }
 
 export async function addRate(request, env, ctx, deps) {
@@ -115,7 +154,8 @@ export async function searches(request, env, ctx, deps) {
     store.rpc('admin_search_journeys', { p_limit: limit }),
     url.searchParams.get('stats') === '1' ? store.rpc('admin_search_stats', { p_days: 7 }) : null,
   ]);
-  return json({ journeys: journeys || [], stats, pricing: { markupBp: MARKUP_BP } });
+  const { markupBp } = await currentMarkup(env, deps);
+  return json({ journeys: journeys || [], stats, pricing: { markupBp } });
 }
 
 const JOURNEY_KEY = /^[A-Za-z0-9|:-]{3,120}$/;

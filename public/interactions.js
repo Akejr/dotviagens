@@ -1,4 +1,4 @@
-import {mountCalendar,addDaysIso,daysBetweenIso,prefetchMonth} from './price-calendar.js';
+import {mountCalendar,addDaysIso,daysBetweenIso,standardTripDays} from './price-calendar.js';
 import {loadAirports,localize} from './airports.js';
 import {POPULAR} from './airports-popular.js';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -28,16 +28,17 @@ for(const id of ['origin','destination']){const select=$('#'+id);select.hidden=t
  select.addEventListener('change',syncCities);
 }
 function syncCities(){for(const id of ['origin','destination']){const select=$('#'+id),code=select.value,a=airportFor(code);const label=a?a.city:code?(select.selectedOptions[0]?.text||code).split(/[,·]/)[0].trim():'Escolhe o teu destino';cityButtons[id].innerHTML=`<span>${esc(label)}</span>${icon('chevron',13)}`;cityButtons[id].setAttribute('aria-label',`${id==='origin'?'Origem':'Destino'}: ${label}`);const small=select.closest('.field').querySelector('small');small.textContent=a?`${a.code} · ${a.name}`:code||'Cidade ou aeroporto';}$('#form-error').hidden=true}syncCities();
-$('#swap').addEventListener('click',()=>{syncCities();$('#swap').classList.remove('swapping');void $('#swap').offsetWidth;$('#swap').classList.add('swapping');warmCalendar()});document.querySelectorAll('.destination-card').forEach(b=>b.addEventListener('click',()=>{syncCities();warmCalendar();$('#departure-trigger').focus({preventScroll:true})}));
+$('#swap').addEventListener('click',()=>{syncCities();$('#swap').classList.remove('swapping');void $('#swap').offsetWidth;$('#swap').classList.add('swapping')});document.querySelectorAll('.destination-card').forEach(b=>b.addEventListener('click',()=>{syncCities();$('#departure-trigger').focus({preventScroll:true})}));
 // Links with ?destino=LIS (blog articles, campaigns) fill in the destination of the search form.
-function chooseDestination(code){if(!airportFor(code)){if(!airportsLoaded)airportsReady.then(()=>{if(airportFor(code))chooseDestination(code)});return}if($('#origin').value===code)$('#origin').value='NBJ';ensureOption($('#destination'),code);$('#destination').value=code;syncCities();warmCalendar();$('#departure-trigger').focus({preventScroll:true})}
+function chooseDestination(code){if(!airportFor(code)){if(!airportsLoaded)airportsReady.then(()=>{if(airportFor(code))chooseDestination(code)});return}if($('#origin').value===code)$('#origin').value='NBJ';ensureOption($('#destination'),code);$('#destination').value=code;syncCities();$('#departure-trigger').focus({preventScroll:true})}
 const dateButtons={};const dateFmt=new Intl.DateTimeFormat('pt-PT',{day:'2-digit',month:'short'});const parse=s=>new Date(s+'T12:00:00');
 for(const id of ['departure','return']){const input=$('#'+id);input.hidden=true;input.required=false;const b=document.createElement('button');b.type='button';b.id=id+'-trigger';b.className='field-trigger date-trigger';b.setAttribute('aria-haspopup','dialog');b.setAttribute('aria-expanded','false');input.after(b);dateButtons[id]=b;input.addEventListener('change',syncDates);b.onclick=()=>openDate(id,b);}
 const maxISO=new Date(Date.now()+330*86400000).toISOString().slice(0,10);
 const isReturnTrip=()=>!$('#pesquisa').classList.contains('oneway');
 const tripLength=()=>daysBetweenIso($('#departure').value,$('#return').value);
-// Indicative price under each day: departure = round trip of the current length (or one way); return = total with the chosen departure.
-function homePriceQuery(id){const origin=$('#origin').value,destination=$('#destination').value;if(!origin||!destination||origin===destination)return null;const passengers=Number($('#passengers').value)||1;if(!isReturnTrip())return {origin,destination,passengers,type:'oneway'};if(id==='return')return {origin,destination,passengers,type:'return',fixedOutbound:$('#departure').value};return {origin,destination,passengers,type:'return',tripDays:Math.min(60,Math.max(1,tripLength()))}}
+// Indicative price under each day: departure = round trip of about the current length (standard lengths,
+// see standardTripDays) or one way; return = total with the chosen departure. Asked only when the calendar opens.
+function homePriceQuery(id){const origin=$('#origin').value,destination=$('#destination').value;if(!origin||!destination||origin===destination)return null;const passengers=Number($('#passengers').value)||1;if(!isReturnTrip())return {origin,destination,passengers,type:'oneway'};if(id==='return')return {origin,destination,passengers,type:'return',fixedOutbound:$('#departure').value};return {origin,destination,passengers,type:'return',tripDays:standardTripDays(Math.min(60,Math.max(1,tripLength())))}}
 // A new departure keeps the trip length (the departure prices assume it), then the return calendar opens with the totals.
 function pickDate(id,value){const departure=$('#departure'),ret=$('#return');if(id==='departure'){const keep=isReturnTrip()?tripLength():null;departure.value=value;departure.dispatchEvent(new Event('change'));if(keep!==null&&keep>=0){let r=addDaysIso(value,keep);if(r>maxISO)r=maxISO;ret.value=r}}else{ret.value=value;ret.dispatchEvent(new Event('change'))}syncDates();close(true);if(id==='departure'&&isReturnTrip())requestAnimationFrame(()=>dateButtons.return.click())}
 function openDate(id,b){const input=$('#'+id);if(!open(b,'calendar','<div role="dialog" aria-label="Escolher data"><div class="calendar-content"></div></div>'))return;const priceQuery=homePriceQuery(id);mountCalendar(panel.querySelector('.calendar-content'),{value:input.value,min:input.min,max:maxISO,heading:id==='departure'?'Quando começa a viagem?':'Quando regressas?',outboundDay:id==='return'?$('#departure').value:null,priceQuery,emptyNote:'Escolhe o destino para veres o preço de cada dia.',foot:`${icon('calendar',14)} ${priceQuery?'Preços indicativos, com taxas incluídas. O valor final confirma-se na pesquisa.':id==='departure'?'Escolhe o primeiro dia da tua próxima história.':'A data de volta deve ser posterior ou igual à ida.'}`,onRender:reposition,onSelect:value=>pickDate(id,value)})}
@@ -48,11 +49,6 @@ document.querySelectorAll('.filters button').forEach(b=>{b.setAttribute('aria-pr
 const media=matchMedia('(prefers-reduced-motion: reduce)');if(!media.matches){const reveal=new IntersectionObserver(entries=>entries.forEach(e=>{if(e.isIntersecting){e.target.classList.add('revealed');reveal.unobserve(e.target)}}),{threshold:.08});document.querySelectorAll('.section-heading,.filter-row,.destination-card,.orange-banner,.how-intro,.steps article,.faq>div,.footer-main>div').forEach((e,i)=>{if(e.getBoundingClientRect().top<innerHeight)return;e.classList.add('reveal');e.style.setProperty('--delay',`${i%4*65}ms`);reveal.observe(e)})}
 const header=$('.header');let ticking=false;window.addEventListener('scroll',()=>{if(!ticking){requestAnimationFrame(()=>{header.classList.toggle('scrolled',scrollY>50);ticking=false});ticking=true}},{passive:true});
 $('#search-form').addEventListener('submit',()=>close());
-// Calendar prices start loading as soon as the route is known (and on hover/focus of the dates),
-// so the calendar usually opens with the prices already there.
-let warmTimer=null;
-function warmCalendar(){clearTimeout(warmTimer);warmTimer=setTimeout(()=>{const query=homePriceQuery('departure'),month=$('#departure').value.slice(0,7);if(query&&month)prefetchMonth(query,month)},250)}
-const warmReturn=()=>{const query=homePriceQuery('return'),month=$('#return').value.slice(0,7);if(query&&month&&isReturnTrip())prefetchMonth(query,month)};
-for(const id of ['origin','destination'])$('#'+id).addEventListener('change',warmCalendar);
-for(const type of ['pointerenter','focus']){dateButtons.departure.addEventListener(type,warmCalendar);dateButtons.return.addEventListener(type,warmReturn)}
+// Calendar prices are no longer loaded in advance (route chosen, hover or focus): each month is a
+// paid SerpApi search, so they load when the customer opens the calendar.
 {const wanted=(new URLSearchParams(location.search).get('destino')||'').toUpperCase();if(/^[A-Z]{3}$/.test(wanted))chooseDestination(wanted)}

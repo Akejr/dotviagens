@@ -5,7 +5,9 @@ import { icon } from './icons.js';
 
 const digits = value => String(value || '').replace(/\D/g, '');
 
-export function mountOtp(container, { purpose = 'login', title, subtitle, askContact = false, initial = {}, submitLabel = 'Enviar código por SMS', onSuccess }) {
+// askContact: name and e-mail (checkout). askName: only the name (price alerts).
+export function mountOtp(container, { purpose = 'login', title, subtitle, askContact = false, askName = false, initial = {}, submitLabel = 'Enviar código por SMS', onSuccess }) {
+  const withName = askContact || askName;
   let phone = initial.phone || '';
   let name = initial.name || '';
   let email = initial.email || '';
@@ -17,8 +19,9 @@ export function mountOtp(container, { purpose = 'login', title, subtitle, askCon
       <form class="otp-card" novalidate>
         ${title ? `<h2>${esc(title)}</h2>` : ''}
         ${subtitle ? `<p class="otp-sub">${esc(subtitle)}</p>` : ''}
+        ${withName ? `
+          <label class="form-field"><span>Nome completo</span><input name="name" autocomplete="name" required maxlength="80" value="${esc(name)}" placeholder="Como queres ser tratado"></label>` : ''}
         ${askContact ? `
-          <label class="form-field"><span>Nome completo</span><input name="name" autocomplete="name" required maxlength="80" value="${esc(name)}" placeholder="Como queres ser tratado"></label>
           <label class="form-field"><span>E-mail</span><input name="email" type="email" autocomplete="email" required maxlength="160" value="${esc(email)}" placeholder="nome@exemplo.com"></label>` : ''}
         <label class="form-field"><span>Número de telemóvel</span>
           <div class="input-prefix"><b>+244</b><input name="phone" inputmode="numeric" autocomplete="tel-national" required maxlength="11" value="${esc(phone)}" placeholder="9XX XXX XXX"></div>
@@ -28,16 +31,18 @@ export function mountOtp(container, { purpose = 'login', title, subtitle, askCon
         <button class="primary otp-submit" type="submit">${icon('message', 17)} ${esc(submitLabel)}</button>
       </form>`;
     const form = container.querySelector('form');
-    form.querySelector(askContact ? '[name=name]' : '[name=phone]').focus();
+    form.querySelector(withName ? '[name=name]' : '[name=phone]').focus();
     form.onsubmit = async event => {
       event.preventDefault();
       const errorBox = form.querySelector('.form-error');
       const field = key => form.querySelector(`[name=${key}]`);
       phone = digits(field('phone').value).replace(/^244(?=9\d{8}$)/, '');
-      if (askContact) {
+      if (withName) {
         name = field('name').value.trim();
-        email = field('email').value.trim();
         if (name.length < 3) return showError(errorBox, 'Indica o teu nome completo.');
+      }
+      if (askContact) {
+        email = field('email').value.trim();
         if (!/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(email)) return showError(errorBox, 'Indica um e-mail válido.');
       }
       if (!/^9\d{8}$/.test(phone)) return showError(errorBox, 'O número tem 9 dígitos e começa por 9.');
@@ -105,12 +110,14 @@ export function mountOtp(container, { purpose = 'login', title, subtitle, askCon
     form.onsubmit = async event => {
       event.preventDefault();
       const errorBox = form.querySelector('.form-error');
-      if (input.value.length !== 6) return showError(errorBox, 'O código tem 6 dígitos.');
       const button = form.querySelector('.otp-submit');
+      // The 6th digit submits on its own: a second submit while the code is being checked is ignored.
+      if (button.disabled) return;
+      if (input.value.length !== 6) return showError(errorBox, 'O código tem 6 dígitos.');
       button.disabled = true;
       button.innerHTML = '<span class="spinner"></span> A confirmar…';
       try {
-        const customer = await auth.verifyOtp({ phone, code: input.value, purpose, ...(askContact ? { name, email } : {}) });
+        const customer = await auth.verifyOtp({ phone, code: input.value, purpose, ...(withName ? { name } : {}), ...(askContact ? { email } : {}) });
         clearInterval(timer);
         onSuccess?.(customer, { name, email });
       } catch (error) {

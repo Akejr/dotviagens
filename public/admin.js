@@ -14,20 +14,21 @@ const root = $('#admin-root');
 const dialog = $('#admin-dialog');
 const LIVE_MS = 3000;
 const NAV = [
-  ['OPERAÇÃO', [['overview', 'Visão geral', 'dashboard'], ['searches', 'Pesquisas', 'activity'], ['bookings', 'Compras', 'ticket'], ['customers', 'Utilizadores', 'users']]],
+  ['OPERAÇÃO', [['overview', 'Visão geral', 'dashboard'], ['searches', 'Pesquisas', 'activity'], ['bookings', 'Compras', 'ticket'], ['customers', 'Utilizadores', 'users'], ['alerts', 'Avisos', 'bell']]],
   ['CONFIGURAÇÃO', [['rates', 'Câmbio e preço', 'coins'], ['sms', 'SMS', 'message'], ['audit', 'Auditoria', 'list'], ['system', 'Sistema', 'settings']]],
 ];
 // Live topics (keys of admin_live_state) that refresh each screen.
 const TOPICS = {
-  overview: ['searches', 'bookings', 'payments', 'customers', 'sms', 'rates'],
-  searches: ['searches', 'rates'],
+  overview: ['searches', 'bookings', 'payments', 'customers', 'sms', 'rates', 'pricing', 'provider_pause'],
+  searches: ['searches', 'rates', 'pricing'],
   bookings: ['bookings', 'payments'],
   booking: ['bookings', 'payments', 'sms', 'audit'],
   customers: ['customers', 'bookings'],
-  rates: ['rates'],
+  alerts: ['alerts', 'customers'],
+  rates: ['rates', 'pricing'],
   sms: ['sms'],
   audit: ['audit'],
-  system: [],
+  system: ['pricing', 'provider_pause'],
 };
 const STATUS = {
   pending_payment: 'A aguardar pagamento',
@@ -41,7 +42,7 @@ const STATUS = {
 const FILTERS = [['', 'Todas'], ['paid', 'Por emitir'], ['pending_payment', 'Pendentes'], ['ticketed', 'Emitidas'], ['no_profit', 'Sem lucro'], ['payment_failed', 'Falhadas'], ['review', 'Para rever'], ['expired', 'Expiradas'], ['cancelled', 'Canceladas'], ['refunded', 'Reembolsadas']];
 const KIND = { view: 'Ida · data escolhida', prefetch: 'Ida · data vizinha', return: 'Volta · data escolhida', 'return-prefetch': 'Volta · data vizinha', calendar: 'Calendário de preços' };
 const SMS_STATUS = { queued: 'Em fila', sent: 'Enviada', delivered: 'Entregue', undelivered: 'Não entregue', failed: 'Falhou', expired: 'Expirou' };
-const SMS_PURPOSE = { otp: 'Código de acesso', payment_confirmed: 'Pagamento confirmado', ticket_issued: 'Bilhete emitido', booking_cancelled: 'Cancelamento' };
+const SMS_PURPOSE = { otp: 'Código de acesso', payment_confirmed: 'Pagamento confirmado', ticket_issued: 'Bilhete emitido', booking_cancelled: 'Cancelamento', price_drop: 'Aviso de preço' };
 const SERVICE = { gpo: 'Multicaixa Express', reference: 'Referência' };
 // Payment column: the Wiza method, "Manual · WhatsApp" when the customer chose to pay with the DOT team,
 // or "Fora do site" for a sale made privately and registered by hand.
@@ -63,7 +64,18 @@ const AUDIT = {
   'booking.import': 'Venda registada à mão',
   'customer.update': 'Utilizador alterado',
   'system.sweep': 'Verificação de pagamentos',
+  'pricing.markup': 'Taxa DOT alterada',
+  'provider.resume': 'Pesquisas de voos retomadas',
+  'alert.cancel': 'Aviso de preço desactivado',
+  'alert.reactivate': 'Aviso de preço reactivado',
 };
+// Price alerts: label and badge colour of each state.
+const ALERT_STATUS = { active: ['Activo', 'paid'], done: ['Concluído', 'ticketed'], expired: ['Expirado', 'expired'], cancelled: ['Desactivado', 'cancelled'] };
+const ALERT_FILTERS = [['', 'Todos'], ['active', 'Activos'], ['notified', 'Com SMS enviado'], ['done', 'Concluídos'], ['expired', 'Expirados'], ['cancelled', 'Desactivados']];
+// SerpApi monthly quota: the panel warns from 80% used.
+const SERP_WARN = 0.8;
+// DOT fee limits accepted by the server (MAX_MARKUP_BP in server/rates.mjs).
+const MAX_MARKUP_PERCENT = 50;
 const MONTHS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 
 let me = null;
@@ -218,6 +230,20 @@ function announce(previous, state) {
   if (Number(state.needs_review) > Number(previous.needs_review)) {
     toast('Há um pagamento para rever.', 'error', { href: '#bookings?status=review', label: 'Rever' });
   }
+  const pause = pauseEnd(state);
+  if (pause && pause !== pauseEnd(previous)) {
+    toast(`Pesquisas de voos em pausa até ${hourLuanda.format(new Date(pause))}: a SerpApi recusou pedidos por limite de uso.`, 'error', { href: '#overview', label: 'Ver' });
+  }
+  const alerts = value => Number(String(value ?? '').split(':')[0]) || 0;
+  if (alerts(state.alerts) > alerts(previous.alerts)) {
+    toast('Novo aviso de preço criado.', 'info', { href: '#alerts?status=active', label: 'Ver' });
+  }
+}
+
+// End of the SerpApi pause (ms) from the live state, or 0 when there is none.
+function pauseEnd(state) {
+  const until = Date.parse(state?.provider_pause?.until || '') || 0;
+  return until > Date.now() ? until : 0;
 }
 
 function paintPill() {
@@ -358,6 +384,7 @@ function route() {
     bookings: bookingsView,
     booking: (p, ctx) => bookingView(decodeURIComponent(argument || ''), ctx),
     customers: customersView,
+    alerts: alertsView,
     rates: ratesView,
     sms: smsView,
     audit: auditView,
@@ -455,6 +482,55 @@ function rateCard(current, today) {
     ${current.effectiveDate !== today ? `<div class="notice">${icon('alert', 18)}<div>O câmbio não foi actualizado hoje. Os preços continuam a usar este valor.</div></div>` : ''}</div>`;
 }
 
+// SerpApi plan and usage (read by the server with the Account API, which costs no search).
+const serpUsed = serp => (serp?.monthly ? Math.min(1, Math.max(0, (Number(serp.used) || 0) / serp.monthly)) : null);
+const serpLevel = serp => {
+  const used = serpUsed(serp);
+  return used === null ? '' : used >= 1 ? 'full' : used >= SERP_WARN ? 'warn' : '';
+};
+
+function serpCard(serp) {
+  const head = `<div class="card-head"><div><h2>${hIcon('globe')} Cota da SerpApi</h2><p>${serp ? `${esc(serp.plan || 'Plano')}${serp.monthly ? ` · ${fmtNumber(serp.monthly)} pesquisas por mês` : ''}` : 'Pesquisa de voos e calendário de preços'}</p></div><a class="btn-sm" href="https://serpapi.com/dashboard" target="_blank" rel="noopener">${icon('external', 14)} Conta</a></div>`;
+  if (!serp) return `<div class="admin-card serp-card">${head}<div class="notice info">${icon('info', 18)}<div>Não foi possível ler o plano e o uso da SerpApi agora. A pesquisa de voos não depende disto.</div></div></div>`;
+  const used = serpUsed(serp);
+  const level = serpLevel(serp);
+  const percent = used === null ? '—' : `${Math.round(used * 100)}%`;
+  const warning = level === 'full'
+    ? 'A cota do mês acabou: as pesquisas de voos param até a cota renovar ou até subires de plano.'
+    : `Já foi usado ${percent} da cota do mês. Ao chegar a 100%, as pesquisas de voos param até a cota renovar. Considera subir de plano.`;
+  return `<div class="admin-card serp-card">${head}
+    <div class="usage-big">${fmtNumber(serp.used)}<small>de ${serp.monthly ? fmtNumber(serp.monthly) : '—'} pesquisas este mês · ${percent}</small></div>
+    <div class="usage-bar ${level}" role="img" aria-label="${percent} da cota do mês usada"><i style="width:${used === null ? 0 : Math.max(2, Math.round(used * 100))}%"></i></div>
+    <div class="status-list">
+      <div><span><strong>Restam</strong><small>Do plano e créditos extra</small></span><b>${serp.left == null ? '—' : fmtNumber(serp.left)}</b></div>
+      <div><span><strong>Última hora</strong><small>Pesquisas feitas · limite por hora do plano</small></span><b>${fmtNumber(serp.lastHour)}${serp.hourLimit ? ` de ${fmtNumber(serp.hourLimit)}` : ''}</b></div>
+    </div>
+    ${level ? `<div class="notice ${level === 'full' ? 'error' : ''}" style="margin-top:14px">${icon('alert', 18)}<div>${warning}</div></div>` : ''}</div>`;
+}
+
+// Searches paused after a SerpApi quota error (HTTP 429): customers see a notice meanwhile.
+function pauseNotice(until) {
+  if (!until) return '';
+  return `<div class="notice error pause-notice">${icon('alert', 18)}<div><strong>Pesquisas de voos em pausa até ${esc(hourLuanda.format(new Date(until)))}.</strong> A SerpApi recusou pedidos por limite de uso. Entretanto os clientes vêem um aviso para tentarem mais tarde ou falarem no WhatsApp. Se o plano já foi renovado, retoma agora.
+    <div class="pause-actions"><button class="btn-sm primary-sm" type="button" data-resume>${icon('refresh', 14)} Retomar agora</button></div></div></div>`;
+}
+
+function bindResume() {
+  view()?.querySelectorAll('[data-resume]').forEach(button => {
+    button.onclick = async () => {
+      button.disabled = true;
+      try {
+        await api('/api/admin/provider/resume', { method: 'POST', body: {} });
+        toast('Pesquisas de voos retomadas.');
+        route();
+      } catch (error) {
+        toast(error.message, 'error');
+        button.disabled = false;
+      }
+    };
+  });
+}
+
 // Journeys: one customer search with the dates and returns it consulted.
 const tripDates = j => `${shortDay(j.departure_date)}${j.return_date ? ` — ${shortDay(j.return_date)}` : ' · só ida'}`;
 const bestBrl = j => j.outbound_min_brl ?? j.view_min_brl ?? j.return_min_brl;
@@ -477,7 +553,8 @@ async function overviewView(params, ctx) {
   markupBp = data.pricing?.markupBp ?? markupBp;
   const s = data.stats || {};
   const firstName = String(me.name || '').trim().split(/\s+/)[0];
-  view().innerHTML = `<section class="admin-hero"><div>
+  const quota = serpUsed(data.serp);
+  view().innerHTML = `${pauseNotice(Date.parse(data.provider?.pausedUntil || '') || 0)}<section class="admin-hero"><div>
       <span class="eyebrow light">${esc(longToday.format(new Date()).toUpperCase())} · LUANDA</span>
       <h2>${greeting()}${firstName ? `, ${esc(firstName)}` : ''}.</h2>
       <p>Hoje: ${plural(s.searches_today, 'pesquisa', 'pesquisas')}, ${plural(s.visitors_today, 'visitante', 'visitantes')} e ${plural(s.paid_today, 'compra paga', 'compras pagas')}. Os números actualizam-se sozinhos.</p>
@@ -496,17 +573,18 @@ async function overviewView(params, ctx) {
       ${kpi('clock', 'Pagamentos pendentes', fmtNumber(s.pending_payment), 'Express ou referência por pagar', '#bookings?status=pending_payment')}
       ${kpi('alert', 'Para rever', fmtNumber(s.needs_review), 'Pagamentos por confirmar à mão', '#bookings?status=review', s.needs_review ? 'warn' : '')}
       ${kpi('user', 'Clientes', fmtNumber(s.customers_total), plural(s.customers_7d, 'novo em 7 dias', 'novos em 7 dias'), '#customers')}
-      ${kpi('globe', 'Consultas à SerpApi hoje', fmtNumber(s.provider_calls_today), 'Datas vizinhas, voltas e calendário', '#searches')}
+      ${kpi('globe', 'Consultas à SerpApi hoje', fmtNumber(s.provider_calls_today), quota === null ? 'Datas escolhidas, voltas e calendário' : `${Math.round(quota * 100)}% da cota do mês usada`, '#searches', serpLevel(data.serp) ? 'warn' : '')}
     </div>
     <div class="admin-grid"><div><div class="admin-card"><div class="card-head"><div><h2>${hIcon('activity')} Pesquisas agora</h2><p>As pesquisas mais recentes, uma linha por cliente.</p></div><a class="btn-sm" href="#searches">Ver todas ${icon('arrowRight', 14)}</a></div>
         ${activityList(recent.journeys || [])}</div>
         <div class="admin-card"><h2>${hIcon('settings')} Integrações</h2><p>Configuradas no ambiente do Worker.</p>${integrationList(data.integrations, data.sms)}</div></div>
-      <div>${rateCard(data.rate, data.today)}
+      <div>${rateCard(data.rate, data.today)}${data.integrations?.search ? serpCard(data.serp) : ''}
         <div class="admin-card"><h2>${hIcon('wallet')} Vendas e lucro</h2><p>Compras pagas ou emitidas. O lucro é o valor que a equipa insere em cada compra.</p>
           <div class="money-rows"><div><span>30 dias</span><strong>${formatKz(s.revenue_30d)}</strong><small>lucro ${formatKz(s.profit_30d)}</small></div>
             <div><span>Desde o início</span><strong>${formatKz(s.revenue_total)}</strong><small>lucro ${formatKz(s.profit_total)}</small></div></div>
           ${s.profit_missing ? `<div class="notice" style="margin-top:14px">${icon('wallet', 18)}<div>${plural(s.profit_missing, 'compra paga sem lucro inserido', 'compras pagas sem lucro inserido')}. <a class="link-btn" href="#bookings?status=no_profit">Inserir lucro</a></div></div>` : ''}
           ${s.invoices_missing ? `<div class="notice" style="margin-top:14px">${icon('receipt', 18)}<div>${plural(s.invoices_missing, 'compra paga sem factura', 'compras pagas sem factura')}. Abre a reserva para reemitir.</div></div>` : ''}</div></div></div>`;
+  bindResume();
 }
 
 // ── Exchange rate and price ──────────────────────────────────────────────────
@@ -517,7 +595,11 @@ async function ratesView(params, ctx) {
   markupBp = data.pricing?.markupBp ?? markupBp;
   const current = data.rows[0];
   if (current) rate = { rate: Number(current.rate), effectiveDate: current.effective_date };
-  view().innerHTML = `<div class="admin-grid"><div class="admin-card"><h2>${hIcon('coins')} Definir o câmbio</h2>
+  const fee = data.pricing || {};
+  const feeChange = fee.editor?.name
+    ? `alterada a ${esc(formatDateTime(fee.updatedAt))} por ${esc(fee.editor.name)}`
+    : 'valor inicial do sistema';
+  view().innerHTML = `<div class="admin-grid"><div><div class="admin-card"><h2>${hIcon('coins')} Definir o câmbio</h2>
       <p>Os preços da pesquisa chegam em reais (BRL). O cliente vê o valor convertido a este câmbio (arredondado para cima ao kwanza) mais a taxa DOT de ${pct(markupBp)}, num único preço final.</p>
       <form id="rate-form" novalidate><div class="form-grid">
         <label class="form-field"><span>1 real brasileiro (R$) vale, em kwanzas</span><input name="rate" inputmode="decimal" required placeholder="Ex.: 165,50" value="${current ? esc(String(current.rate).replace('.', ',')) : ''}"></label>
@@ -526,6 +608,13 @@ async function ratesView(params, ctx) {
         <div class="price-preview" id="rate-preview" aria-live="polite"></div>
         <p class="form-error" role="alert" hidden></p>
         <div class="form-actions"><span class="muted">Fica activo imediatamente para novas pesquisas e compras.</span><button class="primary" type="submit">${icon('check', 16)} Guardar câmbio</button></div></form></div>
+      <div class="admin-card"><h2>${hIcon('trend')} Taxa DOT</h2>
+        <p>Percentagem somada ao valor convertido em kwanzas, dentro do preço final. Em vigor: <b>${pct(markupBp)}</b> (${feeChange}). Ao mudar, os preços novos aparecem logo nas pesquisas, no calendário, nos avisos e nas compras; as reservas já criadas mantêm o preço.</p>
+        <form id="markup-form" novalidate><div class="form-grid">
+          <label class="form-field"><span>Nova taxa DOT (%)</span><input name="markup" inputmode="decimal" required maxlength="6" placeholder="Ex.: 11 ou 11,5" value="${esc(String(markupBp / 100).replace('.', ','))}"></label></div>
+          <div class="price-preview" id="markup-preview" aria-live="polite"></div>
+          <p class="form-error" role="alert" hidden></p>
+          <div class="form-actions"><span class="muted">De 0% a ${MAX_MARKUP_PERCENT}%. Cada alteração fica na auditoria.</span><button class="primary" type="submit">${icon('check', 16)} Guardar taxa</button></div></form></div></div>
     <div>${rateCard(current ? { rate: current.rate, effectiveDate: current.effective_date } : null, data.today)}
       <div class="admin-card"><h2>${hIcon('info')} Como se calcula o preço</h2><ol class="formula">
         <li><b>Voo em reais</b><span>O preço devolvido pela pesquisa (Google Flights, via SerpApi).</span></li>
@@ -570,6 +659,64 @@ async function ratesView(params, ctx) {
       box.textContent = error.message;
       box.hidden = false;
     }
+  };
+
+  // DOT fee: example with the typed percentage, then a confirmation (it changes every price at once).
+  const feeForm = $('#markup-form');
+  const feeInput = feeForm.querySelector('[name=markup]');
+  const typedBp = () => {
+    const text = String(feeInput.value).replace('%', '').replace(/\s/g, '').replace(',', '.');
+    const value = Number(text);
+    if (!text || !Number.isFinite(value) || value < 0 || value > MAX_MARKUP_PERCENT) return null;
+    const bp = Math.round(value * 100);
+    return Math.abs(bp - value * 100) < 1e-6 ? bp : null;
+  };
+  const feePreview = () => {
+    const bp = typedBp();
+    const target = $('#markup-preview');
+    if (bp === null) {
+      target.innerHTML = `<div class="notice-line">${icon('info', 16)}<span>Escreve uma percentagem de 0 a ${MAX_MARKUP_PERCENT}, com até 2 casas decimais.</span></div>`;
+      return;
+    }
+    if (!rate?.rate) {
+      target.innerHTML = `<div class="notice-line">${icon('info', 16)}<span>Define o câmbio para ver o exemplo em kwanzas.</span></div>`;
+      return;
+    }
+    const base = toKz(3500, rate.rate);
+    const total = totalKz(3500, rate.rate, bp);
+    target.innerHTML = `<div class="preview-row"><span>Voo de R$ 3.500,00 convertido</span><b>${formatKz(base)}</b></div>
+      <div class="preview-row"><span>Taxa DOT (${pct(bp)})</span><b>+ ${formatKz(total - base)}</b></div>
+      <div class="preview-row total"><span>O cliente vê e paga</span><b>${formatKz(total)}</b></div>`;
+  };
+  feeInput.oninput = feePreview;
+  feePreview();
+  feeForm.onsubmit = event => {
+    event.preventDefault();
+    const box = $('.form-error', feeForm);
+    box.hidden = true;
+    const bp = typedBp();
+    if (bp === null) {
+      box.textContent = `Indica a taxa em percentagem, de 0 a ${MAX_MARKUP_PERCENT} (por exemplo 11 ou 11,5).`;
+      box.hidden = false;
+      return;
+    }
+    if (bp === markupBp) {
+      box.textContent = `A taxa DOT já é ${pct(bp)}.`;
+      box.hidden = false;
+      return;
+    }
+    document.activeElement?.blur();
+    ask({
+      title: 'Mudar a taxa DOT?',
+      text: `De <b>${pct(markupBp)}</b> para <b>${pct(bp)}</b>. Os preços novos aparecem logo em todo o site.`,
+      confirm: 'Guardar taxa',
+      onSubmit: async () => {
+        const result = await api('/api/admin/pricing', { method: 'POST', body: { markupPercent: String(bp / 100) } });
+        markupBp = result.pricing?.markupBp ?? bp;
+        toast(`Taxa DOT guardada: ${pct(markupBp)}.`);
+        route();
+      },
+    });
   };
 }
 
@@ -946,6 +1093,83 @@ async function customersView(params, ctx) {
   });
 }
 
+// ── Price alerts ─────────────────────────────────────────────────────────────
+const alertBadge = status => {
+  const [label, tone] = ALERT_STATUS[status] || [status, ''];
+  return `<span class="badge ${esc(tone)}">${esc(label)}</span>`;
+};
+const yymmdd = iso => String(iso || '').slice(2, 10).replace(/-/g, '');
+// Same short link as the SMS: /resultados?v=NBJLIS2612182612281.
+const alertLink = row => `/resultados?v=${row.origin}${row.destination}${yymmdd(row.departure_date)}${row.return_date ? yymmdd(row.return_date) : ''}${row.passengers}`;
+
+function alertRow(row, today) {
+  const who = row.customer
+    ? `<strong>${esc(row.customer.name || 'Cliente')}</strong><small>${esc(formatPhone(row.customer.phone))}</small>`
+    : '—';
+  const drop = Number(row.baseline_kz) - Number(row.lowest_price_kz ?? row.baseline_kz);
+  const last = row.checks
+    ? `<strong>${formatKz(row.last_price_kz)}</strong><small>${plural(row.checks, 'pesquisa', 'pesquisas')} · <span data-ago="${esc(row.last_seen_at)}">${esc(ago(row.last_seen_at))}</span></small>${drop > 0 ? `<small>mínimo ${formatKz(row.lowest_price_kz)} (−${formatKz(drop)})</small>` : ''}`
+    : '<span class="muted">Sem pesquisas novas</span>';
+  const sent = [
+    row.first_alert_kz ? `1.º ${formatKz(row.first_alert_kz)} · ${formatDateTime(row.first_alert_at)}` : '',
+    row.second_alert_kz ? `2.º ${formatKz(row.second_alert_kz)} · ${formatDateTime(row.second_alert_at)}` : '',
+  ].filter(Boolean);
+  const action = row.status === 'active'
+    ? `<button class="btn-sm danger" type="button" data-alert="${esc(row.id)}" data-action="cancel">Desactivar</button>`
+    : row.status === 'cancelled' && String(row.departure_date) >= today
+      ? `<button class="btn-sm" type="button" data-alert="${esc(row.id)}" data-action="reactivate">Reactivar</button>`
+      : '';
+  return `<tr><td>${who}</td>
+    <td><strong>${esc(cityName(row.origin))} → ${esc(cityName(row.destination))}</strong><small>${esc(row.origin)} · ${esc(row.destination)} · ${plural(row.passengers, 'adulto', 'adultos')}</small></td>
+    <td>${esc(shortDay(row.departure_date))}${row.return_date ? ` — ${esc(shortDay(row.return_date))}` : '<small>só ida</small>'}</td>
+    <td class="num"><strong>${formatKz(row.baseline_kz)}</strong><small data-ago="${esc(row.created_at)}">${esc(ago(row.created_at))}</small></td>
+    <td class="num">${last}</td>
+    <td><strong>${fmtNumber(row.alerts_sent)} de 2</strong>${sent.map(text => `<small>${esc(text)}</small>`).join('')}</td>
+    <td>${alertBadge(row.status)}</td>
+    <td><div class="action-bar"><a class="btn-sm" href="${esc(alertLink(row))}" target="_blank" rel="noopener">${icon('external', 14)} Voos</a>${action}</div></td></tr>`;
+}
+
+async function alertsView(params, ctx) {
+  const status = params.get('status') || '';
+  const offset = Number(params.get('offset')) || 0;
+  const limit = 30;
+  setTitle('Avisos de preço');
+  const query = new URLSearchParams({ limit, offset });
+  if (status) query.set('status', status);
+  const data = await api(`/api/admin/alerts?${query}`);
+  if (stale(ctx)) return;
+  const stats = data.stats || {};
+  const rules = data.rules || {};
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Luanda' }).format(new Date());
+  view().innerHTML = `<div class="kpi-grid">
+      ${kpi('bell', 'Avisos activos', stats.active == null ? '—' : fmtNumber(stats.active), 'À espera de uma descida de preço', '#alerts?status=active', stats.active ? 'good' : '')}
+      ${kpi('message', 'Com SMS enviado', stats.notified == null ? '—' : fmtNumber(stats.notified), 'Receberam pelo menos 1 aviso', '#alerts?status=notified')}
+      ${kpi('checkCircle', 'Concluídos', stats.done == null ? '—' : fmtNumber(stats.done), 'Já receberam os 2 avisos', '#alerts?status=done')}</div>
+    <div class="chips spaced">${ALERT_FILTERS.map(([key, label]) => `<a class="chip ${status === key ? 'selected' : ''}" href="#alerts${key ? `?status=${key}` : ''}">${esc(label)}</a>`).join('')}</div>
+    ${table('<th>Cliente</th><th>Viagem</th><th>Datas</th><th class="num">Preço visto</th><th class="num">Último preço</th><th>SMS</th><th>Estado</th><th></th>', data.rows.map(row => alertRow(row, today)).join(''), status ? 'Nenhum aviso neste estado.' : 'Ainda não há avisos de preço.')}
+    ${pager(data.total, offset, limit, `alerts${status ? `?status=${status}` : ''}`)}
+    <div class="admin-card"><h2>${hIcon('trendDown')} Como funcionam</h2><p>Nos resultados, o cliente indica o nome e confirma o telemóvel com um código por SMS (fica nos Utilizadores). O preço é seguido com as pesquisas que outros visitantes fazem para a mesma viagem (rota, datas e adultos), sem consultas extra à SerpApi.</p>
+      <ol class="formula">
+        <li><b>1.º SMS</b><span>Quando o preço baixa mais de ${formatKz(rules.firstDropKz ?? 50000)} face ao preço que o cliente viu.</span></li>
+        <li><b>2.º SMS, o último</b><span>Quando baixa pelo menos mais ${formatKz(rules.secondDropKz ?? 100000)} face ao preço do 1.º SMS.</span></li>
+        <li><b>Fim do aviso</b><span>Depois do 2.º SMS ou quando a data da viagem passa.</span></li></ol></div>`;
+  view().querySelectorAll('[data-alert]').forEach(element => {
+    element.onclick = () => {
+      const cancel = element.dataset.action === 'cancel';
+      ask({
+        title: cancel ? 'Desactivar este aviso?' : 'Reactivar este aviso?',
+        text: esc(cancel ? 'O cliente deixa de receber SMS sobre esta viagem.' : 'O aviso volta a seguir o preço desta viagem.'),
+        confirm: cancel ? 'Desactivar' : 'Reactivar',
+        onSubmit: async () => {
+          await api(`/api/admin/alerts/${element.dataset.alert}`, { method: 'POST', body: { action: element.dataset.action } });
+          toast(cancel ? 'Aviso desactivado.' : 'Aviso reactivado.');
+          route();
+        },
+      });
+    };
+  });
+}
+
 // ── SMS ──────────────────────────────────────────────────────────────────────
 async function smsView(params, ctx) {
   const category = params.get('category') || '';
@@ -1018,13 +1242,17 @@ async function systemView(params, ctx) {
         row(Boolean(env.publicBaseUrl), 'Endereço público', 'PUBLIC_BASE_URL', env.publicBaseUrl || 'Usado nos callbacks da Wiza; sem ele usa-se o endereço do pedido'),
         row(env.bootstrapAdmins > 0, 'Administradores iniciais', 'ADMIN_PHONES', `${env.bootstrapAdmins} número(s) com acesso garantido`),
       ].join(''), '')}</div>
-    <div><div class="admin-card"><h2>${hIcon('coins')} Preço ao cliente</h2><p>Câmbio do dia mais a taxa DOT de <b>${pct(markupBp)}</b> sobre o valor convertido. A taxa é definida no servidor (MARKUP_BP em server/rates.mjs) e nunca aparece à parte para o cliente.</p><a class="btn-sm" href="#rates">${icon('coins', 14)} Ver câmbio e exemplo</a></div>
+    <div>${pauseNotice(Date.parse(data.provider?.pausedUntil || '') || 0)}<div class="admin-card"><h2>${hIcon('coins')} Preço ao cliente</h2><p>Câmbio do dia mais a taxa DOT de <b>${pct(markupBp)}</b> sobre o valor convertido. A taxa muda-se no painel, em Câmbio e preço (de 0% a ${MAX_MARKUP_PERCENT}%), e nunca aparece à parte para o cliente.</p><a class="btn-sm" href="#rates">${icon('coins', 14)} Câmbio e taxa DOT</a></div>
+      ${env.search ? serpCard(data.serp) : ''}
       <div class="admin-card"><h2>${hIcon('refresh')} Verificar pagamentos agora</h2><p>Consulta na Wiza as cobranças dos últimos 7 minutos e tenta reemitir facturas em falta. Corre também quando o cliente está na página de pagamento e quando chega um callback.</p>
       <button class="primary" type="button" id="sweep">${icon('refresh', 16)} Verificar agora</button></div>
       <div class="admin-card"><h2>${hIcon('clock')} Tarefas automáticas (pg_cron)</h2><div class="status-list">
         <div><span><strong>Limpeza de pesquisas</strong><small>Apaga pesquisas com mais de 7 dias, de hora a hora</small></span><span class="ok-dot">Supabase</span></div>
         <div><span><strong>Códigos e sessões</strong><small>Remove OTP antigos e sessões terminadas</small></span><span class="ok-dot">Supabase</span></div>
-        <div><span><strong>Reservas por pagar</strong><small>Passam a expiradas após 72 horas</small></span><span class="ok-dot">Supabase</span></div></div></div></div></div>`;
+        <div><span><strong>Reservas por pagar</strong><small>Passam a expiradas após 72 horas</small></span><span class="ok-dot">Supabase</span></div>
+        <div><span><strong>Pesquisas partilhadas</strong><small>Apaga de hora a hora as pesquisas guardadas que já expiraram (valem 25 minutos)</small></span><span class="ok-dot">Supabase</span></div>
+        <div><span><strong>Avisos de preço</strong><small>Terminam quando a data da viagem passa</small></span><span class="ok-dot">Supabase</span></div></div></div></div></div>`;
+  bindResume();
   $('#sweep').onclick = async () => {
     const button = $('#sweep');
     button.disabled = true;

@@ -74,3 +74,54 @@
 .route-details .timeline{max-width:720px}
 .summary-leg .timeline{margin-top:14px}
 @media(max-width:560px){.timeline li{grid-template-columns:44px 18px minmax(0,1fr);column-gap:10px}.tl-time{font-size:14px}.tl-rail:before{left:8px}.tl-stop .tl-rail:after{left:3px}}
+/* Date strip: calendar prices are indicative until the day is searched */
+.date-card.indicative strong{font-weight:600;color:#4f544a}
+.date-card.indicative small{display:block;margin-bottom:2px;font-size:8.5px;font-weight:600;letter-spacing:.7px;text-transform:uppercase;color:#a3a89b}
+.date-card.ask strong{font-size:12px;letter-spacing:0;font-weight:600;color:#b34b00}
+.date-card.active.ask strong{color:#c85b08}
+/* A tap on the flight card opens or closes its route */
+.offer-card{cursor:pointer}
+.offer-card .route-details{cursor:auto}
+/* Price alert: SMS when this trip gets cheaper */
+.price-alert{display:flex;align-items:center;gap:14px;margin:0 0 13px;padding:14px 16px;border:1px solid #ffe0c2;border-radius:13px;background:linear-gradient(120deg,#fffaf3,#fff3e8)}
+.price-alert[hidden]{display:none}
+.price-alert-icon{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;flex:none;background:#fff;color:var(--orange);box-shadow:inset 0 0 0 1px #ffd8bd}
+.price-alert-copy{flex:1;min-width:0}
+.price-alert-copy strong{display:block;font-size:14px;letter-spacing:-.2px;color:var(--ink)}
+.price-alert-copy span{display:block;margin-top:2px;font-size:12px;line-height:1.5;color:#8a7a68}
+.price-alert #alert-open{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.price-alert.done{background:#f4faf5;border-color:#d3eadb}
+.price-alert.done .price-alert-icon{color:#2f8f4e;box-shadow:inset 0 0 0 1px #cfe6d6}
+.price-alert.done #alert-open{opacity:1;cursor:default;color:#2f7d46;border-color:#cfe6d6;background:#fff}
+@media(max-width:560px){.price-alert{flex-wrap:wrap;padding:14px}.price-alert #alert-open{width:100%;justify-content:center;min-height:42px}}
+.alert-dialog{max-width:440px;padding:26px 26px 24px;border-radius:20px}
+.alert-head{display:flex;justify-content:space-between;align-items:flex-start}
+.alert-icon{width:46px;height:46px;border-radius:50%;display:grid;place-items:center;background:var(--brand-gradient);color:#fff;box-shadow:0 8px 18px #ef590030}
+.alert-close{width:34px;height:34px;border-radius:50%;border:1px solid var(--line);background:#fff;color:#6b7368;font-size:20px;line-height:1;cursor:pointer}
+.alert-close:hover{border-color:#f8b18d;color:#b34b00}
+.alert-dialog h2{font-size:22px;letter-spacing:-.5px;line-height:1.25;margin:14px 0 8px}
+.alert-dialog .alert-trip{margin:0 0 14px;font-size:13px;line-height:1.6;color:#5f6457}
+.alert-dialog .alert-trip b{color:var(--ink)}
+.alert-dialog .alert-rule{display:flex;gap:10px;align-items:flex-start;margin:0;padding:12px 14px;border-radius:12px;background:#fff6ec;border:1px solid #ffe2c6;font-size:12px;line-height:1.6;color:#846d57}
+.alert-rule svg{flex:none;margin-top:3px;color:var(--orange)}
+.alert-body{margin-top:18px}
+.alert-wait{display:flex;align-items:center;justify-content:center;gap:10px;min-height:110px;font-size:13px;color:#8a8f84}
+.alert-dialog .spinner{display:inline-block;width:20px;height:20px;border:2px solid #ffe2c3;border-top-color:#f5770c;border-radius:50%;animation:spin .8s linear infinite}
+.alert-dialog .primary .spinner{width:17px;height:17px;border-color:#ffffff55;border-top-color:#fff}
+.alert-dialog .primary{display:flex;justify-content:center;align-items:center;gap:9px;width:100%;min-height:50px;border-radius:12px;font-size:14px}
+.alert-dialog .otp-card h2{font-size:18px;margin:0 0 6px}
+.alert-dialog .otp-sub{margin:0 0 16px;font-size:13px;line-height:1.6}
+.alert-dialog .form-hint{margin:12px 0 0;line-height:1.6}
+.alert-dialog .otp-submit{margin-top:16px}
+.alert-account{display:grid;gap:12px}
+.alert-dialog .alert-account p{margin:0;font-size:13px;line-height:1.6;color:#5f6457}
+.alert-dialog .alert-account p b{color:var(--ink)}
+.alert-account .link-btn{justify-self:center}
+.alert-done{text-align:center}
+.alert-ok{color:#2f8f4e}
+.alert-done h3{font-size:19px;letter-spacing:-.3px;margin:6px 0 6px}
+.alert-dialog .alert-done p{margin:0 0 18px;font-size:13px;line-height:1.6}
+.alert-dialog .alert-error .form-error{margin:0 0 12px}
+.alert-error .secondary{width:100%;min-height:46px}
+@media(max-width:560px){.alert-dialog{padding:22px 18px 20px}.alert-dialog h2{font-size:20px}}
+@media(prefers-reduced-motion:reduce){.alert-dialog .spinner{animation:none}}

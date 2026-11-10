@@ -1,7 +1,14 @@
 import {airports} from './airport-codes.mjs';
 import {safeLogo,signResult,signedQuery} from './offers.mjs';
 const memo=new Map(), pending=new Map();
+// Memory cache of this instance (10 min) inside the 25 min window of the shared cache (hooks.cacheGet):
+// a result is never reused after 25 min, so its offers can still be bought (30 min limit).
+const MEMO_MS=600000,SHARE_MS=25*60*1000;
 const json=(data,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'no-store'}});
+function remember(key,data){if(memo.size>=100)memo.delete(memo.keys().next().value);const searched=Date.parse(data.searchedAt)||Date.now();memo.set(key,{data,until:Math.min(Date.now()+MEMO_MS,searched+SHARE_MS)})}
+// age: how old the result already is, so the browser keeps it only for the rest of the 25 minutes.
+const reused=data=>({...data,cached:true,age:Math.max(0,Date.now()-(Date.parse(data.searchedAt)||Date.now()))});
+const PAUSED='As pesquisas de voos estão em pausa por alguns minutos. Tenta novamente mais tarde ou fala connosco no WhatsApp.';
 export function validate(q){
  const date=s=>typeof s==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(s)&&!isNaN(Date.parse(s))&&new Date(s).toISOString().slice(0,10)===s;
  const today=new Date().toISOString().slice(0,10);
@@ -28,17 +35,26 @@ export async function handleSearch(request,env,fetcher=fetch,hooks={}){
  let q,meta;try{const body=await request.text();if(body.length>16000)return json({error:'Pedido demasiado grande.'},413);const raw=JSON.parse(body);q=validate(raw);meta=metaOf(raw)}catch(e){return json({error:e instanceof SyntaxError?'Pedido inválido.':e.message},400)}
  if(!env.SERPAPI_KEY)return json({error:'A pesquisa ainda não está configurada.'},503);
  const started=Date.now();const report=(result,status,errorCode=null)=>{try{hooks.onSearch?.({q,meta,status,errorCode,cached:!!result?.cached,offers:result?.offers||[],durationMs:Date.now()-started})}catch{}};
- const key=JSON.stringify(q);const saved=memo.get(key);if(saved&&saved.until>Date.now()){const result={...saved.data,cached:true};report(result,result.offers.length?'ok':'empty');return json(result)}
+ const key=JSON.stringify(q);const saved=memo.get(key);if(saved&&saved.until>Date.now()){const result=reused(saved.data);report(result,result.offers.length?'ok':'empty');return json(result)}
  if(pending.has(key))return pending.get(key).then(r=>r.clone());
  const task=(async()=>{try{
+ // Shared cache: the same search made in the last 25 minutes by any visitor, on any server instance.
+ const shared=await Promise.resolve(hooks.cacheGet?.(key)).catch(()=>null);
+ if(Array.isArray(shared?.offers)&&Date.parse(shared.searchedAt)+SHARE_MS>Date.now()){remember(key,shared);const result=reused(shared);report(result,result.offers.length?'ok':'empty');return json(result)}
+ // After a quota error SerpApi is paused for a few minutes on every instance: no call is made.
+ const paused=Number(await Promise.resolve(hooks.pausedUntil?.()).catch(()=>0))||0;
+ if(paused>Date.now())return json({error:hooks.pauseMessage?.(paused)||PAUSED,code:'PROVIDER_PAUSED',retryAt:new Date(paused).toISOString()},503);
  const url=new URL('https://serpapi.com/search.json');url.search=new URLSearchParams({engine:'google_flights',api_key:env.SERPAPI_KEY,departure_id:q.origin,arrival_id:q.destination,outbound_date:q.departureDate,...(q.returnDate?{return_date:q.returnDate}:{}),type:q.returnDate?'1':'2',...(q.departureToken?{departure_token:q.departureToken}:{}),adults:String(q.passengers),travel_class:'1',stops:String(q.stops),currency:'BRL',hl:'pt',gl:'pt'}).toString();
  const response=await fetcher(url,{signal:AbortSignal.timeout(45000)});const data=await response.json();
  if(response.status===401||response.status===403){report(null,'error','PROVIDER_AUTH');return json({error:'A SerpApi recusou a chave de acesso. Confirma a chave no painel da SerpApi.',code:'PROVIDER_AUTH'},502)}
- if(response.status===429){report(null,'error','PROVIDER_LIMIT');return json({error:'O limite de pesquisas da SerpApi foi atingido. Verifica a quota da conta.',code:'PROVIDER_LIMIT'},429)}
+ if(response.status===429){const until=hooks.onLimit?.();report(null,'error','PROVIDER_LIMIT');return json({error:until&&hooks.pauseMessage?hooks.pauseMessage(until):PAUSED,code:'PROVIDER_LIMIT'},429)}
  if(!response.ok||(data.error&&!noResults(data))){report(null,'error','PROVIDER_ERROR');return json({error:'O fornecedor não conseguiu concluir esta pesquisa. Tenta outras datas ou tenta novamente.',code:'PROVIDER_ERROR'},502)}
  let result={demo:false,offers:normalize(data),currency:'BRL',passengers:q.passengers,roundTrip:!!q.returnDate,searchedAt:new Date().toISOString(),cached:false};
  // Signed offers let checkout trust the price without a new paid search.
  result=env.OFFER_SECRET?await signResult(env.OFFER_SECRET,result,q):{...result,query:signedQuery(q)};
- if(memo.size>=100)memo.delete(memo.keys().next().value);memo.set(key,{data:result,until:Date.now()+600000});report(result,result.offers.length?'ok':'empty');return json(result);
+ remember(key,result);report(result,result.offers.length?'ok':'empty');
+ // Fresh provider result: shared with the other instances and checked against price alerts.
+ try{hooks.onFresh?.(q,result,key)}catch{}
+ return json({...result,age:0});
  }catch{report(null,'error','PROVIDER_UNAVAILABLE');return json({error:'Não foi possível contactar o fornecedor de voos. Tenta novamente dentro de momentos.',code:'PROVIDER_UNAVAILABLE'},502)}})();pending.set(key,task);try{return (await task).clone()}finally{pending.delete(key)}
 }

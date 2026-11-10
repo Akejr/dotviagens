@@ -25,29 +25,48 @@ const publicMessages = {
   organization_not_approved: 'O envio de SMS está temporariamente indisponível. Tenta mais tarde.',
 };
 
-// Keep texts in the GSM-7 alphabet (1 SMS = 160 chars). é è à ù ì ò stay; other accents are removed.
-const GSM_KEEP = new Set(['é', 'è', 'à', 'ù', 'ì', 'ò', 'É']);
-export function gsm7(text) {
-  return [...String(text)]
-    .map(char => (GSM_KEEP.has(char) ? char : char.normalize('NFD').replace(/[\u0300-\u036f]/g, '')))
-    .join('')
+// Every SMS is plain ASCII: no accents or special symbols. One SMS = 160 characters
+// (a single non-GSM character would turn it into 70-character parts and cost more).
+export function ascii(text) {
+  return String(text)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
     .replace(/[\u00a0\u202f]/g, ' ')
     .replace(/[ºª]/g, '')
-    .replace(/[‘’]/g, "'")
-    .replace(/[“”]/g, '"')
-    .replace(/[–—]/g, '-');
+    .replace(/[‘’´`]/g, "'")
+    .replace(/[“”«»]/g, '"')
+    .replace(/[–—]/g, '-')
+    .replace(/[→⇄]/g, '-')
+    .replace(/[^\x20-\x7e\n]/g, '')
+    .replace(/ {2,}/g, ' ')
+    .trim();
+}
+// Older name kept for callers: same rule.
+export const gsm7 = ascii;
+
+export const SMS_MAX = 160;
+const groupDigits = value => String(Math.round(value)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+const dayMonth = iso => String(iso || '').slice(5, 10).split('-').reverse().join('/');
+
+// Price alert: first text that fits one SMS (city names, then airport codes, then without the link).
+function priceDrop({ origin, destination, originName, destinationName, departureDate, returnDate, from, to, link }) {
+  const dates = returnDate ? `${dayMonth(departureDate)} a ${dayMonth(returnDate)}` : dayMonth(departureDate);
+  const named = originName && destinationName ? `${originName}-${destinationName}` : null;
+  const build = (route, url) => ascii(`DOT Viagens: o preco da viagem ${route} ${dates} caiu de ${groupDigits(from)} Kz para ${groupDigits(to)} Kz.${url ? ` Ve: ${url}` : ''}`);
+  const codes = `${origin}-${destination}`;
+  const options = [named && build(named, link), build(codes, link), named && build(named, null), build(codes, null)].filter(Boolean);
+  return options.find(text => text.length <= SMS_MAX) || options.at(-1);
 }
 
-const groupDigits = value => String(Math.round(value)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
-
 export const smsText = {
-  otp: code => `DOT Viagens: o teu codigo é ${code}. Valido por 5 minutos. Nao o partilhes.`,
+  otp: code => ascii(`DOT Viagens: o teu codigo e ${code}. Valido por 5 minutos. Nao o partilhes.`),
   paid: (reference, amountAoa) =>
-    gsm7(`DOT Viagens: recebemos o pagamento de ${groupDigits(amountAoa)} Kz da reserva ${reference}. Vamos emitir o teu bilhete e avisamos por SMS.`),
+    ascii(`DOT Viagens: recebemos o pagamento de ${groupDigits(amountAoa)} Kz da reserva ${reference}. Vamos emitir o teu bilhete e avisamos por SMS.`),
   ticketed: (reference, pnr) =>
-    gsm7(`DOT Viagens: o teu bilhete foi emitido. Reserva ${reference}${pnr ? `, codigo ${pnr}` : ''}. Ve os detalhes em Minhas viagens.`),
+    ascii(`DOT Viagens: o teu bilhete foi emitido. Reserva ${reference}${pnr ? `, codigo ${pnr}` : ''}. Ve os detalhes em Minhas viagens.`),
   cancelled: reference =>
-    gsm7(`DOT Viagens: a reserva ${reference} foi cancelada. A nossa equipa vai contactar-te.`),
+    ascii(`DOT Viagens: a reserva ${reference} foi cancelada. A nossa equipa vai contactar-te.`),
+  priceDrop,
 };
 
 async function request(env, method, path, { body, idempotencyKey, fetcher }) {

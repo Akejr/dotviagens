@@ -9,6 +9,8 @@ import { hmacHex } from './crypto.mjs';
 import { requestOtp, verifyOtp, me, logout, getSession } from './auth.mjs';
 import { rateEndpoint } from './rates.mjs';
 import { quote, createBooking, listMyBookings, getMyBooking, checkBooking, retryPayment, wizaCallback, sweep } from './bookings.mjs';
+import { sharedFlight, shareFlight, pausedUntil, pauseProvider, pauseMessage } from './provider.mjs';
+import { createAlert, checkAlerts, listAlerts, alertAction } from './alerts.mjs';
 import * as admin from './admin.mjs';
 
 // Daily-salted visitor hash: counts unique visitors without storing IPs.
@@ -87,7 +89,19 @@ async function logCalendar(env, request, info, deps) {
 }
 
 const search = (request, env, ctx, deps) =>
-  handleSearch(request, env, deps.fetcher, { onSearch: info => defer(ctx, logSearch(env, request, info, deps)) });
+  handleSearch(request, env, deps.fetcher, {
+    onSearch: info => defer(ctx, logSearch(env, request, info, deps)),
+    // Shared cache of searches (all instances, 25 min) and pause after a SerpApi quota error.
+    cacheGet: key => sharedFlight(env, deps, key),
+    pausedUntil: () => pausedUntil(env, deps),
+    pauseMessage,
+    onLimit: () => pauseProvider(env, ctx, deps, 'limit'),
+    // A fresh result is shared with the other instances and follows the price alerts of this trip.
+    onFresh: (q, result, key) => {
+      shareFlight(env, ctx, deps, key, result);
+      if (!q.departureToken && result.offers.length) defer(ctx, checkAlerts(env, q, result, deps, request));
+    },
+  });
 
 const calendar = (request, env, ctx, deps) =>
   handleCalendar(request, env, ctx, deps, { onCalendar: info => defer(ctx, logCalendar(env, request, info, deps)) });
@@ -103,6 +117,7 @@ const routes = [
   ['POST', '/api/auth/otp/verify', verifyOtp],
   ['GET', '/api/auth/me', me],
   ['POST', '/api/auth/logout', logout],
+  ['POST', '/api/alerts', createAlert],
   ['POST', '/api/checkout/quote', quote],
   ['POST', '/api/bookings', createBooking],
   ['GET', '/api/bookings', listMyBookings],
@@ -117,6 +132,10 @@ const routes = [
   ['GET', '/api/admin/overview', admin.overview],
   ['GET', '/api/admin/rates', admin.listRates],
   ['POST', '/api/admin/rates', admin.addRate],
+  ['POST', '/api/admin/pricing', admin.setMarkup],
+  ['POST', '/api/admin/provider/resume', admin.resumeSearches],
+  ['GET', '/api/admin/alerts', listAlerts],
+  ['POST', `/api/admin/alerts/(${UUID})`, alertAction],
   ['GET', '/api/admin/searches', admin.searches],
   ['GET', '/api/admin/searches/calls', admin.searchCalls],
   ['GET', '/api/admin/bookings', admin.listBookings],
