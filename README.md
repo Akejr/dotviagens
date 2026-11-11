@@ -78,7 +78,9 @@ quem não tem voos regulares) e gera `server/airport-codes.mjs` e
 `public/airport-countries.js`, com os países da pesquisa por país
 ("Brasil (todos os aeroportos)") e o id de cada país no Google, lido da
 Wikidata. Depois correr `node scripts/build-main-airports.mjs` (os aeroportos
-principais que a pesquisa por país compara; usa a `SEARCHAPI_KEY` do
+principais que a pesquisa por país compara;
+`node scripts/build-city-airports.mjs` gera as cidades com vários aeroportos,
+"Moscovo (todos os aeroportos)", e a cidade de cada aeroporto para os e-mails; usa a `SEARCHAPI_KEY` do
 `.dev.vars`, ~190 pesquisas só na primeira vez ou com `--refresh`) e o
 script seguinte.
 

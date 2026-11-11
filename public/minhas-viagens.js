@@ -59,7 +59,7 @@ const isUpcoming = booking => !CLOSED.includes(booking.status) && (booking.retur
 const statusOf = booking => STATUS[booking.status] || { label: booking.statusLabel || booking.status, tone: 'muted' };
 const payHref = booking => `/compra?ref=${encodeURIComponent(booking.reference)}`;
 const routeHtml = booking => `${esc(city(booking.origin))} <i aria-hidden="true">→</i> ${esc(city(booking.destination))}`;
-const tripLine = booking => `${booking.returnDate ? `${shortDay(booking.departureDate)} → ${shortDay(booking.returnDate)}` : shortDay(booking.departureDate)} · ${booking.tripType === 'return' ? 'Ida e volta' : 'Só ida'} · ${plural(booking.passengersCount, 'adulto', 'adultos')}`;
+const tripLine = booking => `${booking.returnDate ? `${shortDay(booking.departureDate)} → ${shortDay(booking.returnDate)}` : shortDay(booking.departureDate)} · ${booking.tripType === 'return' ? 'Ida e volta' : 'Só ida'} · ${plural(booking.passengersCount, 'passageiro', 'passageiros')}`;
 const whatsappButton = booking => `<a class="primary whatsapp-btn" href="${esc(bookingLink(booking, city))}" target="_blank" rel="noopener"><img class="wa-glyph" src="/assets/payments/whatsapp.svg" width="18" height="18" alt=""> Pagar pelo WhatsApp</a>`;
 
 // ── List ──────────────────────────────────────────────────────────────────────

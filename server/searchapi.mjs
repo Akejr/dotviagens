@@ -45,7 +45,7 @@ const noFlights = data => typeof data?.error === 'string' && /(hasn.t returned|d
 // Never log this URL: it carries the api_key.
 function requestUrl(env, params) {
   const target = new URL(BASE);
-  target.search = new URLSearchParams({ ...params, travel_class: 'economy', currency: 'BRL', hl: 'pt', gl: 'pt', api_key: env.SEARCHAPI_KEY }).toString();
+  target.search = new URLSearchParams({ travel_class: 'economy', ...params, currency: 'BRL', hl: 'pt', gl: 'pt', api_key: env.SEARCHAPI_KEY }).toString();
   return target;
 }
 
@@ -66,6 +66,8 @@ export function searchApiFlightsUrl(env, q) {
     flight_type: q.returnDate ? 'round_trip' : 'one_way',
     ...(q.departureToken ? { departure_token: q.departureToken } : {}),
     adults: String(q.passengers),
+    ...(q.children ? { children: String(q.children) } : {}),
+    travel_class: q.cabin || 'economy',
     stops: q.stops === 1 ? 'nonstop' : 'any',
     show_cheapest_flights: 'true',
     separate_tickets: '1',
@@ -98,7 +100,7 @@ export function calendarParts(q) {
 export async function searchApiCalendar(env, q, fetcher) {
   // A country goes as its main airports separated by commas (places.mjs, calendarId).
   const take = airportsPerSide(q.origin, q.destination);
-  const common = { engine: 'google_flights_calendar', departure_id: calendarId(q.origin, take), arrival_id: calendarId(q.destination, take), adults: String(q.passengers), stops: 'any' };
+  const common = { engine: 'google_flights_calendar', departure_id: calendarId(q.origin, take), arrival_id: calendarId(q.destination, take), adults: String(q.passengers), travel_class: q.cabin || 'economy', stops: 'any' };
   const requests = [];
   if (q.type !== 'return') {
     for (const [from, to] of blocks(q.start, q.end, ONE_WAY_BLOCK_DAYS)) {

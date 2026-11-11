@@ -2,9 +2,9 @@
 // SerpApi: one provider call per month view; SearchApi round trips: 3 parts. Memoised 30 minutes. Prices stay in BRL:
 // the browser applies the câmbio do dia and the DOT fee, like every other price.
 
-import { isPlace, isCountry, mainAirports, calendarId, airportsPerSide } from './places.mjs';
+import { isPlace, isGroup, airportsOf, calendarId, airportsPerSide } from './places.mjs';
 import { HttpError, json, readJson, assertSameOrigin, isoDate, defer } from './http.mjs';
-import { noResults } from './flights.mjs';
+import { noResults, CABINS } from './flights.mjs';
 import { db, hasSupabase } from './supabase.mjs';
 import { pausedUntil, pauseProvider, pauseMessage } from './provider.mjs';
 import { searchApiOn, searchApiCalendar, calendarParts, CALENDAR_TIMEOUT_MS } from './searchapi.mjs';
@@ -39,6 +39,8 @@ export function validateCalendar(body, now = Date.now()) {
   if (!isPlace(origin) || !isPlace(destination) || origin === destination) fail('Escolhe aeroportos diferentes da lista.');
   const passengers = body.passengers ?? 1;
   if (!Number.isInteger(passengers) || passengers < 1 || passengers > 4) fail('Pesquisa disponível para 1 a 4 adultos.');
+  const cabin = body.cabin ?? 'economy';
+  if (!Object.hasOwn(CABINS, cabin)) fail('Classe de viagem inválida.');
   // Part of the month (SearchApi round trips only; ignored otherwise).
   const part = body.part ?? null;
   if (part !== null && (!Number.isInteger(part) || part < 0 || part > 9)) fail('Parte do mês inválida.');
@@ -67,7 +69,7 @@ export function validateCalendar(body, now = Date.now()) {
     const limit = addDays(fixedOutbound, MAX_SPAN_DAYS);
     if (end > limit) end = limit;
   }
-  return { origin, destination, passengers, type, month, monthStart, start, end, fixedOutbound, tripDays, part, empty: end < start || end < monthStart };
+  return { origin, destination, passengers, cabin, type, month, monthStart, start, end, fixedOutbound, tripDays, part, empty: end < start || end < monthStart };
 }
 
 export function normalizeCalendar(data, q) {
@@ -113,7 +115,7 @@ async function fetchPrices(env, q, key, fetcher, hooks, onLimit = () => 0) {
     date_range_end: q.end,
     ...(q.fixedOutbound ? { fixed_outbound_date: 'true' } : {}),
     ...(q.tripDays ? { round_trip_days: String(q.tripDays) } : {}),
-    travel_class: '1',
+    travel_class: CABINS[q.cabin || 'economy'].serp,
     adults: String(q.passengers),
     currency: 'BRL',
     hl: 'pt',
@@ -174,7 +176,8 @@ function shareLater(env, ctx, deps, key, prices) {
 // kgmid (empty answers) are not reused, and a new list of main airports asks again.
 const cacheKey = q => {
   const take = airportsPerSide(q.origin, q.destination);
-  return [calendarId(q.origin, take), calendarId(q.destination, take), q.passengers, q.type, q.start, q.end, q.fixedOutbound || '', q.tripDays || ''].join('|');
+  // Economy keeps the keys it always had; another class adds its name.
+  return [calendarId(q.origin, take), calendarId(q.destination, take), q.passengers, q.type, q.start, q.end, q.fixedOutbound || '', q.tripDays || '', ...(q.cabin && q.cabin !== 'economy' ? [q.cabin] : [])].join('|');
 };
 
 export async function handleCalendar(request, env, ctx, deps, hooks = {}) {
@@ -241,7 +244,7 @@ export async function withRealPrices(env, deps, q, prices) {
     const range = (column, from, to) => `(${column}.gte.${from},${column}.lte.${to})`;
     // A whole country is searched through its main airports, so those are the rows to read.
     const take = airportsPerSide(q.origin, q.destination);
-    const place = code => (isCountry(code) && mainAirports(code).length ? `in.(${mainAirports(code).slice(0, take).join(',')})` : `eq.${code}`);
+    const place = code => (isGroup(code) ? `in.(${airportsOf(code, take).join(',')})` : `eq.${code}`);
     const rows = await db(env, deps.fetcher).select('search_logs', {
       select: 'departure_date,return_date,passengers,min_price_brl',
       origin: place(q.origin),
@@ -249,6 +252,9 @@ export async function withRealPrices(env, deps, q, prices) {
       or: '(kind.is.null,kind.neq.calendar)', // neq alone would also drop the rows without kind.
       has_token: 'is.false',
       status: 'eq.ok',
+      // Prices per adult of the same class: searches with children are left out.
+      children: 'eq.0',
+      cabin: `eq.${q.cabin || 'economy'}`,
       created_at: `gte.${new Date(Date.now() - SHARED_TTL_MS).toISOString()}`,
       ...(q.type === 'oneway' ? { return_date: 'is.null' } : { return_date: 'not.is.null' }),
       ...(q.fixedOutbound ? { departure_date: `eq.${q.fixedOutbound}`, and: range('return_date', q.start, q.end) } : { and: range('departure_date', q.start, q.end) }),

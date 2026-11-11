@@ -9,7 +9,7 @@ import { HttpError, json, readJson, assertSameOrigin, cleanText, publicOrigin } 
 import { db } from './supabase.mjs';
 import { requireUser, requireAdmin, secret } from './auth.mjs';
 import { validate } from './flights.mjs';
-import { isCountry } from './places.mjs';
+import { isGroup } from './places.mjs';
 import { signOffer, signedQuery } from './offers.mjs';
 import { currentRate, currentMarkup, priceAoa } from './rates.mjs';
 import { smsText, ascii } from './sms.mjs';
@@ -68,11 +68,15 @@ export async function createAlert(request, env, ctx, deps) {
   } catch (error) {
     throw new HttpError(400, error.message, 'INVALID_QUERY');
   }
-  // An alert follows one exact trip between two airports, not a whole country.
-  if (isCountry(q.origin) || isCountry(q.destination)) {
+  // An alert follows one exact trip between two airports, not a whole country or city.
+  if (isGroup(q.origin) || isGroup(q.destination)) {
     throw new HttpError(400, 'Os avisos de preço são para viagens entre dois aeroportos. Escolhe o aeroporto e cria o aviso.', 'COUNTRY_ALERT');
   }
   const leg = body.offer;
+  // Alerts follow adults in economy (the price of other classes and children is not followed).
+  if (leg?.query && ((leg.query.children || 0) > 0 || (leg.query.cabin && leg.query.cabin !== 'economy') || (q.children || 0) > 0)) {
+    throw new HttpError(400, 'Os avisos de preço são para adultos em classe económica.', 'ALERT_ECONOMY_ONLY');
+  }
   if (!leg || typeof leg !== 'object' || !leg.offer || typeof leg.offer.sig !== 'string' || !leg.query || typeof leg.searchedAt !== 'string') {
     throw new HttpError(400, 'Volta a pesquisar e tenta criar o aviso novamente.', 'INVALID_OFFER');
   }
@@ -105,6 +109,8 @@ export async function createAlert(request, env, ctx, deps) {
     departure_date: `eq.${q.departureDate}`,
     return_date: q.returnDate ? `eq.${q.returnDate}` : 'is.null',
     passengers: `eq.${q.passengers}`,
+    children: 'eq.0',
+    cabin: 'eq.economy',
     has_token: 'is.false',
     status: 'eq.ok',
     created_at: `gte.${new Date(Date.now() - BASELINE_MAX_AGE_MS).toISOString()}`,
@@ -143,7 +149,7 @@ export async function createAlert(request, env, ctx, deps) {
 // of the same trip and sends the SMS that are due. Never throws.
 export async function checkAlerts(env, q, result, deps, request) {
   try {
-    if (q.departureToken || !result?.offers?.length) return 0;
+    if (q.departureToken || !result?.offers?.length || q.children || (q.cabin && q.cabin !== 'economy')) return 0;
     const store = db(env, deps.fetcher);
     const alerts = await store.select('price_alerts', {
       select: '*,customer:customers(phone,blocked)',

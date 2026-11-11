@@ -99,7 +99,8 @@ const pct = bp => `${new Intl.NumberFormat('pt-AO', { maximumFractionDigits: 2 }
 const regionNames = new Intl.DisplayNames(['pt-AO', 'pt-PT', 'pt'], { type: 'region' });
 const wholeCountry = code => (/^[A-Z]{2}$/.test(code || '') ? regionNames.of(code) || code : null);
 const city = code => (cities[code] ? `${cities[code]} (${code})` : wholeCountry(code) ? `${wholeCountry(code)} (todos os aeroportos)` : code);
-const cityName = code => cities[code] || wholeCountry(code) || code;
+// A city with several airports ("SVO,DME,VKO,ZIA"): the city of the first one.
+const cityName = code => cities[code] || wholeCountry(code) || (String(code || '').includes(',') ? `${cities[code.split(',')[0]] || code.split(',')[0]} (todos)` : code);
 const clockLuanda = new Intl.DateTimeFormat('pt-PT', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Africa/Luanda' });
 const hourLuanda = new Intl.DateTimeFormat('pt-PT', { hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Luanda' });
 const longToday = new Intl.DateTimeFormat('pt-PT', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Africa/Luanda' });
@@ -470,6 +471,7 @@ function integrationList(state, sms) {
     ${row(state.supabase, 'Base de dados', 'Supabase')}
     ${row(state.search, 'Pesquisa de voos', `${state.searchProvider || searchProvider} · Google Flights e calendário de preços`)}
     ${row(state.sms, 'SMS', sms ? `Nsangu · ${fmtNumber(sms.availableSms)} SMS disponíveis` : 'Nsangu')}
+    ${row(state.email, 'E-mails', 'Resend · confirmação ao cliente e aviso de compra')}
     ${row(state.payments, 'Pagamentos', 'Wiza · Multicaixa Express e referência')}
     ${row(state.invoices, 'Facturação', state.invoicesSandbox ? 'Vero · chave de teste (não chega à AGT)' : 'Vero · factura certificada AGT')}
     ${row(state.auth && state.offerSigning, 'Segredos internos', 'AUTH_SECRET e OFFER_SECRET')}
@@ -861,7 +863,7 @@ async function bookingsView(params, ctx) {
     ${table('<th>Referência</th><th>Cliente</th><th>Viagem</th><th class="num">Valor</th><th>Estado</th><th>Pagamento</th><th>Factura</th>', data.rows.map(row => `<tr class="clickable${previous && !previous.has(row.reference) ? ' new' : ''}" data-ref="${esc(row.reference)}">
       <td class="mono"><strong>${esc(row.reference)}</strong><small>${esc(formatDateTime(row.created_at))}</small></td>
       <td>${esc(row.contact_name)}<small>${esc(formatPhone(row.contact_phone))}</small></td>
-      <td>${esc(city(row.origin))} ${row.trip_type === 'return' ? '⇄' : '→'} ${esc(city(row.destination))}<small>${esc(formatDate(row.departure_date))}${row.return_date ? ` — ${esc(formatDate(row.return_date))}` : ''} · ${plural(row.passengers_count, 'adulto', 'adultos')}</small></td>
+      <td>${esc(city(row.origin))} ${row.trip_type === 'return' ? '⇄' : '→'} ${esc(city(row.destination))}<small>${esc(formatDate(row.departure_date))}${row.return_date ? ` — ${esc(formatDate(row.return_date))}` : ''} · ${plural(row.passengers_count, 'passageiro', 'passageiros')}</small></td>
       <td class="num">${amountCell(row)}</td>
       <td>${statusBadge(row.status)}${row.needs_review ? '<small class="flag" style="margin-top:6px">Rever</small>' : ''}${row.ticket_pnr ? `<small>PNR ${esc(row.ticket_pnr)}</small>` : ''}</td>
       <td>${esc(paymentMethodLabel(row))}<small>${row.imported ? 'registada à mão' : row.payment_method === 'manual' && !row.wiza_status ? 'combinar no WhatsApp' : `${esc(row.wiza_status || '')}${row.wiza_status_code ? ` · ${esc(row.wiza_status_code)}` : ''}`}</small></td>
@@ -878,6 +880,7 @@ async function bookingsView(params, ctx) {
   });
 }
 
+const EMAIL_PURPOSE = { payment_confirmed: 'Confirmação da compra ao cliente', invoice: 'Factura ao cliente', admin_paid: 'Aviso de compra à equipa' };
 const asciiName = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z' -]/g, '').trim();
 const airlineFormat = p => `${asciiName(p.surname)}/${asciiName(p.given_names)} ${p.title}`;
 
@@ -934,7 +937,7 @@ function renderBooking(data) {
         ${itinerary.inbound?.bookingToken || itinerary.outbound?.bookingToken ? '<p class="muted" style="margin-top:12px">O booking_token do Google Flights está guardado na reserva para consulta das opções de compra.</p>' : ''}</div>
       <div class="admin-card"><h2>${hIcon('idCard')} Passageiros</h2><p>Dados tal como no passaporte. Copia o nome no formato das companhias aéreas.</p>
         ${b.booking_passengers.map((p, index) => `<div class="passenger-line"><div class="kv">
-          <div><small>Passageiro ${index + 1}</small><strong>${p.title === 'MR' ? 'Sr.' : 'Sra.'} ${esc(p.given_names)} ${esc(p.surname)}</strong></div>
+          <div><small>Passageiro ${index + 1} · ${p.passenger_type === 'child' ? 'Criança' : 'Adulto'}</small><strong>${p.title === 'MR' ? 'Sr.' : 'Sra.'} ${esc(p.given_names)} ${esc(p.surname)}</strong></div>
           <div><small>Nascimento</small><strong>${esc(formatDate(p.birth_date) || '—')}</strong></div>
           <div><small>Nacionalidade</small><strong>${p.nationality ? esc(countryName(p.nationality)) : '—'}</strong></div>
           <div><small>Passaporte</small><strong class="mono">${esc(p.document_number || '—')}</strong></div>
@@ -968,6 +971,7 @@ function renderBooking(data) {
       <div class="admin-card"><h2>${hIcon('ticket')} Bilhete</h2>${b.ticket_pnr ? `<div class="kv"><div><small>PNR</small><strong class="mono">${esc(b.ticket_pnr)}</strong></div><div><small>Números do bilhete</small><strong>${esc(b.ticket_numbers || '—')}</strong></div>${b.ticket_notes ? `<div><small>Notas para o cliente</small><strong>${esc(b.ticket_notes)}</strong></div>` : ''}</div>` : `<p class="card-sub">${b.status === 'ticketed' ? 'Bilhete emitido sem código da reserva registado. Usa Editar bilhete para o registar (podes não enviar SMS).' : paid ? 'Compra paga. Emite o bilhete na companhia ou no consolidador e regista aqui o PNR para o cliente receber o SMS.' : 'O bilhete só é emitido depois do pagamento.'}</p>`}
         ${b.cancel_reason ? `<div class="notice" style="margin-top:12px">${icon('info', 18)}<div>Cancelada: ${esc(b.cancel_reason)}</div></div>` : ''}</div>
       <div class="admin-card"><h2>${hIcon('message')} SMS desta reserva</h2>${table('<th>Quando</th><th>Mensagem</th><th>Estado</th>', data.sms.map(sms => `<tr><td>${esc(formatDateTime(sms.created_at))}</td><td>${esc(SMS_PURPOSE[sms.purpose] || sms.purpose || sms.category)}<small>remetente ${esc(sms.sender || '—')}</small></td><td>${esc(SMS_STATUS[sms.status] || sms.status || '—')}${sms.error ? `<small>${esc(sms.error)}</small>` : ''}</td></tr>`).join(''), 'Nenhum SMS enviado.')}</div>
+      <div class="admin-card"><h2>${hIcon('message')} E-mails desta reserva</h2>${table('<th>Quando</th><th>Mensagem</th><th>Estado</th>', (data.emails || []).map(mail => `<tr><td>${esc(formatDateTime(mail.created_at))}</td><td>${esc(EMAIL_PURPOSE[mail.purpose] || mail.purpose || '—')}<small>${esc(mail.to_address)}${mail.with_invoice ? ' · com factura' : ''}</small></td><td>${mail.status === 'sent' ? 'Enviado' : 'Falhou'}${mail.error ? `<small>${esc(mail.error)}</small>` : ''}</td></tr>`).join(''), 'Nenhum e-mail enviado.')}</div>
       <div class="admin-card"><h2>${hIcon('file')} Notas internas</h2><p class="card-sub" style="white-space:pre-wrap">${esc(b.admin_notes || 'Sem notas.')}</p></div>
       <div class="admin-card"><h2>${hIcon('list')} Auditoria</h2>${table('<th>Quando</th><th>Quem</th><th>Acção</th>', data.audit.map(row => `<tr><td>${esc(formatDateTime(row.created_at))}</td><td>${esc(row.admin?.name || '—')}</td><td>${esc(AUDIT[row.action] || row.action)}</td></tr>`).join(''), 'Sem alterações registadas.')}</div>
     </div></div>`;
@@ -1246,6 +1250,7 @@ async function systemView(params, ctx) {
         row(env.supabase, 'Supabase', 'SUPABASE_URL, SUPABASE_SECRET_KEY', 'Base de dados de clientes, compras e pesquisas'),
         row(env.search, env.searchProvider || 'SerpApi', env.searchProvider === 'SearchApi' ? 'SEARCHAPI_KEY' : 'SERPAPI_KEY', env.searchProvider === 'SearchApi' ? 'Pesquisa de voos e calendário de preços (Google Flights). FLIGHTS_PROVIDER=serpapi volta à SerpApi' : 'Pesquisa de voos e calendário de preços (Google Flights)'),
         row(env.sms, 'Nsangu', 'NSANGU_API_KEY', 'SMS de códigos e avisos'),
+        row(env.email, 'Resend', 'RESEND_API_KEY (RESEND_FROM, ADMIN_EMAIL opcionais)', 'E-mail da compra ao cliente (com a factura) e à equipa'),
         row(env.payments, 'Wiza', 'WIPAY_CLIENT_ID, WIPAY_CLIENT_SECRET, WIPAY_WEBHOOK_SECRET', 'Multicaixa Express e referência'),
         row(env.invoices, 'Vero', 'VERO_API_KEY, VERO_ORG_ID', env.invoicesSandbox ? 'Chave de teste: as facturas não chegam à AGT' : 'Factura-recibo certificada'),
         row(env.auth, 'Sessões e OTP', 'AUTH_SECRET', 'Assina códigos e sessões'),

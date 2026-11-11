@@ -8,11 +8,12 @@ import { requireUser, secret } from './auth.mjs';
 import { verifyItinerary, makeQuote, readQuote, QUOTE_TTL_MS } from './offers.mjs';
 import { currentRate, currentMarkup, priceAoa } from './rates.mjs';
 import { validatePassengers } from './passengers.mjs';
-import { isCountry } from './places.mjs';
+import { isGroup } from './places.mjs';
 import { hasWiza, createCharge, paymentStatus, transactionInfo, wizaMessage } from './wiza.mjs';
 import { hasVero, isVeroSandbox, ensureCustomer, issueInvoice, invoiceStatus } from './vero.mjs';
 import { smsText } from './sms.mjs';
 import { sendAndRecord } from './notify.mjs';
+import { purchaseEmails, invoiceEmail, travellersText } from './emails.mjs';
 import { sha256Hex, timingSafeEqual } from './crypto.mjs';
 
 export const REFERENCE = /^DOT-\d{6}-\d{5,}$/;
@@ -48,7 +49,7 @@ export async function logEvent(store, bookingId, source, outcome, payload = null
     .catch(error => console.error('payment event not saved:', error.message));
 }
 
-const publicQuery = q => ({ origin: q.origin, destination: q.destination, departureDate: q.departureDate, returnDate: q.returnDate, passengers: q.passengers });
+const publicQuery = q => ({ origin: q.origin, destination: q.destination, departureDate: q.departureDate, returnDate: q.returnDate, passengers: q.passengers, children: q.children || 0, cabin: q.cabin || 'economy' });
 
 const publicLeg = leg => leg ? {
   airline: leg.airline,
@@ -113,13 +114,15 @@ export function publicBooking(row, env) {
     departureDate: row.departure_date,
     returnDate: row.return_date,
     passengersCount: row.passengers_count,
+    childrenCount: (row.booking_passengers || []).filter(p => p.passenger_type === 'child').length || Number(itinerary.query?.children) || 0,
+    cabin: itinerary.query?.cabin || 'economy',
     amountAoa: Number(row.amount_aoa),
     contact: { name: row.contact_name, phone: row.contact_phone, email: row.contact_email },
     paymentMethod: row.payment_method === 'manual' ? 'manual' : 'wiza',
     itinerary: { outbound: publicLeg(itinerary.outbound), inbound: publicLeg(itinerary.inbound) },
     passengers: (row.booking_passengers || [])
       .sort((a, b) => a.position - b.position)
-      .map(p => ({ title: p.title, givenNames: p.given_names, surname: p.surname, nationality: p.nationality, documentNumber: mask(p.document_number) })),
+      .map(p => ({ type: p.passenger_type || 'adult', title: p.title, givenNames: p.given_names, surname: p.surname, nationality: p.nationality, documentNumber: mask(p.document_number) })),
     payment: {
       status: row.wiza_status,
       service: row.wiza_service,
@@ -224,7 +227,7 @@ export async function createBooking(request, env, ctx, deps) {
   if (contactName.length < 3) throw new HttpError(400, 'Indica o nome completo do contacto.', 'INVALID_CONTACT');
   if (!contactEmail) throw new HttpError(400, 'Indica um e-mail válido.', 'INVALID_EMAIL');
   const q = verified.query;
-  const passengers = validatePassengers(body.passengers, { count: q.passengers, departureDate: q.departureDate, lastTravelDate: lastTravelDate(verified) });
+  const passengers = validatePassengers(body.passengers, { count: q.passengers, children: q.children || 0, departureDate: q.departureDate, lastTravelDate: lastTravelDate(verified) });
   const invoice = parseInvoice(body.invoice);
   if (body.accept !== true) throw new HttpError(400, 'Confirma que os dados dos passageiros estão correctos.', 'NOT_ACCEPTED');
 
@@ -247,12 +250,12 @@ export async function createBooking(request, env, ctx, deps) {
     contact_phone: session.customer.phone,
     contact_email: contactEmail,
     trip_type: verified.roundTrip ? 'return' : 'oneway',
-    // A search to a whole country records the airports actually flown (the itinerary keeps the query).
-    origin: isCountry(q.origin) ? verified.outbound.offer.segments[0].from : q.origin,
-    destination: isCountry(q.destination) ? verified.outbound.offer.segments.at(-1).to : q.destination,
+    // A search to a whole country or city records the airports actually flown (the itinerary keeps the query).
+    origin: isGroup(q.origin) ? verified.outbound.offer.segments[0].from : q.origin,
+    destination: isGroup(q.destination) ? verified.outbound.offer.segments.at(-1).to : q.destination,
     departure_date: q.departureDate,
     return_date: q.returnDate,
-    passengers_count: q.passengers,
+    passengers_count: q.passengers + (q.children || 0),
     itinerary: {
       outbound: verified.outbound.stored,
       inbound: verified.inbound?.stored ?? null,
@@ -272,6 +275,7 @@ export async function createBooking(request, env, ctx, deps) {
   await store.insert('booking_passengers', passengers.map((p, index) => ({
     booking_id: booking.id,
     position: index + 1,
+    passenger_type: p.type,
     title: p.title,
     given_names: p.givenNames,
     surname: p.surname,
@@ -327,6 +331,10 @@ export async function confirmPayment(env, store, booking, details, source, ctx, 
 }
 
 async function afterPayment(env, store, booking, deps) {
+  // The e-mails need the passengers (the confirmed row comes without them).
+  const passengers = await store.select('booking_passengers', { select: '*', booking_id: `eq.${booking.id}`, order: 'position.asc' }).catch(() => []);
+  // The team hears of the sale at once; the customer's e-mail waits for the invoice (below).
+  await purchaseEmails.admin(env, store, { ...booking, booking_passengers: passengers }, deps).catch(error => console.error('admin e-mail failed:', error.code || error.message));
   await sendAndRecord(env, store, {
     phone: booking.contact_phone,
     text: smsText.paid(booking.reference, Number(booking.amount_aoa)),
@@ -336,11 +344,25 @@ async function afterPayment(env, store, booking, deps) {
     bookingId: booking.id,
   }, deps).catch(error => console.error('payment sms failed:', error.code || error.message));
   // Law 3: the invoice comes after the confirmation and its failure never cancels the sale.
-  await issueBookingInvoice(env, store, booking, deps).catch(error => console.error('invoice failed:', error.code || error.message));
+  const invoiced = await issueBookingInvoice(env, store, booking, deps).catch(error => {
+    console.error('invoice failed:', error.code || error.message);
+    return null;
+  });
+  // Purchase confirmation with the invoice; without it, the invoice follows in its own e-mail.
+  await purchaseEmails.customer(env, store, { ...booking, ...(invoiced || {}), booking_passengers: passengers }, deps)
+    .catch(error => console.error('customer e-mail failed:', error.code || error.message));
 }
 
-const invoiceDescription = b =>
-  `Passagem aérea ${b.origin}-${b.destination}${b.trip_type === 'return' ? `-${b.origin}` : ''} · ${b.passengers_count} adulto(s) · ${b.reference}`;
+// An invoice issued later (sweep or admin): sent by e-mail when the confirmation went without it.
+export async function sendLateInvoice(env, store, booking, deps) {
+  if (!booking?.vero_invoice_id) return;
+  await invoiceEmail(env, store, booking, deps).catch(error => console.error('invoice e-mail failed:', error.code || error.message));
+}
+
+const invoiceDescription = b => {
+  const children = Number(b.itinerary?.query?.children) || 0;
+  return `Passagem aérea ${b.origin}-${b.destination}${b.trip_type === 'return' ? `-${b.origin}` : ''} · ${travellersText(b.passengers_count - children, children)} · ${b.reference}`;
+};
 
 export async function issueBookingInvoice(env, store, booking, deps, { poll = true } = {}) {
   if (!['paid', 'ticketed'].includes(booking.status)) return booking;
@@ -581,7 +603,10 @@ export async function runSweep(env, ctx, deps) {
     paid_at: `gte.${new Date(Date.now() - 3 * 86400e3).toISOString()}`,
     limit: 5,
   });
-  for (const booking of missing) await issueBookingInvoice(env, store, booking, deps, { poll: false }).catch(() => {});
+  for (const booking of missing) {
+    const row = await issueBookingInvoice(env, store, booking, deps, { poll: false }).catch(() => null);
+    if (row?.vero_invoice_id) await sendLateInvoice(env, store, row, deps);
+  }
   return { checked: pending.length, confirmed, invoicesRetried: missing.length };
 }
 

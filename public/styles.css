@@ -120,3 +120,6 @@ html{-webkit-text-size-adjust:100%;text-size-adjust:100%;touch-action:manipulati
 /* Phones: smaller, and out of the way while the customer types (the keyboard pushes it over the fields). */
 @media(max-width:760px){.wa-float{right:16px;bottom:16px;width:54px;height:54px}.wa-float img{width:29px;height:29px}body:has(input:focus,select:focus,textarea:focus) .wa-float{opacity:0;pointer-events:none}.footer-bottom{padding-right:70px}}
 @media print{.wa-float{display:none}}
+/* Class of travel in the passenger picker */
+.cabin-picker{margin:2px 0 18px}.cabin-picker>span{display:block;font-size:13px;font-weight:600;margin-bottom:10px}.cabin-picker>div{display:grid;grid-template-columns:1fr 1fr;gap:8px}.cabin-picker button{border:1px solid var(--line);background:#fff;border-radius:10px;padding:11px 10px;font:inherit;font-size:12px;color:var(--ink);text-align:left;cursor:pointer;transition:border-color .15s,background .15s}.cabin-picker button:hover{border-color:#f8c5aa}.cabin-picker button.selected{border-color:var(--orange);background:#fff5ec;color:var(--orange);font-weight:600}
+.travel-picker .passenger-row{margin:18px 0}

@@ -24,6 +24,8 @@ export const signedQuery = q => ({
   departureDate: q.departureDate,
   returnDate: q.returnDate ?? null,
   passengers: q.passengers,
+  // Only when there are children: the signatures of adult searches stay as they were.
+  ...(q.children ? { children: q.children } : {}),
   cabin: q.cabin,
   stops: q.stops ?? 0,
   departureToken: q.departureToken ?? null,
@@ -105,7 +107,7 @@ export async function verifyItinerary(secret, itinerary, { now = Date.now() } = 
     inbound = await checkLeg(secret, itinerary?.inbound, now);
     const a = outbound.query;
     const b = inbound.query;
-    const sameTrip = ['origin', 'destination', 'departureDate', 'returnDate', 'passengers', 'cabin'].every(key => a[key] === b[key]);
+    const sameTrip = ['origin', 'destination', 'departureDate', 'returnDate', 'passengers', 'cabin'].every(key => a[key] === b[key]) && (a.children || 0) === (b.children || 0);
     // The return list must come from the departure token of this exact outbound.
     if (!sameTrip || !b.departureToken || b.departureToken !== outbound.offer.departureToken) invalid();
   } else if (itinerary?.inbound) {

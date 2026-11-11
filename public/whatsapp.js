@@ -35,7 +35,7 @@ export function bookingMessage(booking, city = code => code) {
     'Olá, DOT Viagens! Quero pagar a minha reserva com pagamento manual.',
     '',
     `*Reserva ${booking.reference}*`,
-    `${route} · ${booking.inbound ? 'ida e volta' : 'só ida'} · ${plural(count, 'adulto', 'adultos')}`,
+    `${route} · ${booking.inbound ? 'ida e volta' : 'só ida'} · ${plural(count, 'passageiro', 'passageiros')}`,
     '',
     ...legLines(booking.outbound, 'Ida'),
   ];

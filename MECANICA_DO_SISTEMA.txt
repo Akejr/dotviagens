@@ -1,5 +1,9 @@
 DOT VIAGENS — DOCUMENTAÇÃO DO SISTEMA
-Revisão: 11 de Novembro de 2026 (10.ª) — a pesquisa por país compara os
+Revisão: 12 de Novembro de 2026 (11.ª) — cidades com vários aeroportos
+("Moscovo (todos os aeroportos)", secção 3B); crianças e classes de viagem,
+com troca de classe em cada voo dos resultados (secção 4A); "+1" na hora de
+chegada no dia seguinte; e-mails da compra pela Resend (secção 10A).
+10.ª revisão (11/11/2026): a pesquisa por país compara os
 aeroportos principais do país, um a um (a SearchApi devolvia listas curtas
 ou vazias para o país inteiro), e passa a ter preços no calendário, pedidos
 com os aeroportos principais separados por vírgulas (secção 3A); cada pedido
@@ -185,6 +189,26 @@ não aparece e POST /api/alerts responde 400 COUNTRY_ALERT.
 A reserva guarda os aeroportos voados; a compra e a mensagem do WhatsApp
 mostram os aeroportos reais. O painel mostra as pesquisas de cada aeroporto
 (e o nome do país nos registos antigos por país).
+
+3B. CIDADES COM VÁRIOS AEROPORTOS ("MOSCOVO (TODOS OS AEROPORTOS)")
+Ao escrever o nome da cidade (em português ou como no catálogo: "mosc",
+"moscow", "londres"), aparecem no topo até 2 entradas como "Moscovo (todos os
+aeroportos)", com os aeroportos ("SVO, DME, VKO e ZIA") e o país. O código da
+cidade no endereço é a lista dos aeroportos: destination=SVO,DME,VKO,ZIA. O
+servidor só aceita listas conhecidas (server/city-airports.mjs) e trata a
+cidade como um país (secção 3A): pesquisa cada aeroporto (até 4; 2 x 2 quando
+os dois lados são grupos), junta os voos, calendário com os aeroportos
+separados por vírgulas, sem aviso de preço; escolher um voo passa a pesquisa
+para o aeroporto dele. Caso que motivou: um cliente pesquisou Luanda → ZIA
+(Zhukovsky) e não teve voos, havia voos para DME nesse dia.
+As cidades (53) são GERADAS por scripts/build-city-airports.mjs
+(server/city-airports.mjs, public/city-airports.js, e server/airport-names.mjs
+com a cidade de cada aeroporto para os e-mails): uma lista METROS de áreas
+metropolitanas IATA que o catálogo separa com nomes diferentes (Londres LHR,
+LGW, STN, LTN; Paris; Nova Iorque; Tóquio; Milão; São Paulo; Istambul...) e
+as outras cidades com 2 ou mais aeroportos com o mesmo nome no airports.json,
+com pelo menos 200 000 passageiros por ano (Wikidata) e a menos de 80 km uns
+dos outros (Portland do Oregon e do Maine não se juntam).
 
 4. PESQUISA E ESTADO
 home.html contém formulário e branding, app.js valida e navega para
@@ -533,6 +557,36 @@ Os avisos terminam depois do 2.º SMS (done), quando a data da ida passa
 Limite: só há aviso se alguém voltar a pesquisar a mesma viagem; rotas pouco
 procuradas podem não receber aviso.
 
+4A. CRIANÇAS, CLASSES E HORAS
+Passageiros (home, "Quem vai viajar?"): adultos 1 a 4 (12 anos ou mais) e
+crianças 0 a 3 (2 a 11 anos na data da ida). Bebés e grupos: WhatsApp.
+Classe de viagem: Económica, Económica premium, Executiva ou Primeira.
+Endereço: &passengers=1&children=1&cabin=business (children só quando há).
+Servidor (flights.mjs, validate): children vai à SearchApi (children) e à
+SerpApi (children); a classe em travel_class (SearchApi economy,
+premium_economy, business, first_class; SerpApi 1 a 4). A consulta e a
+assinatura só levam "children" quando há crianças: as pesquisas de adultos
+mantêm as chaves de cache e as assinaturas de antes. O rótulo da classe vai
+em cada oferta (cabin: "Executiva").
+Troca de classe em cada voo (resultados, etapa da ida): por baixo de cada
+cartão, "Classe: Económica · Económica premium · Executiva · Primeira".
+Tocar noutra classe faz 1 pesquisa do dia nessa classe (cache como sempre,
+partilhada por todos os cartões) e o cartão mostra o preço desse mesmo voo
+(mesmos números e horas) nessa classe, ou "Sem Executiva neste voo".
+Seleccionar usa a oferta dessa classe: a volta e o resto da compra seguem
+nessa classe; voltar a "Escolher ida" repõe a classe da pesquisa.
+Calendário: pedido para 1 adulto na classe da pesquisa (a chave da cache
+leva a classe quando não é económica) e multiplicado por adultos + crianças
+(indicativo). Os preços reais por cima do calendário e os avisos de preço
+usam só pesquisas de adultos em económica (search_logs.children e cabin).
+Avisos de preço só para adultos em económica (400 ALERT_ECONOMY_ONLY).
+Compra: os formulários são primeiro os adultos e depois as crianças (o
+servidor confere as idades pela ordem: adulto 12+, criança 2 a 11 na ida);
+booking_passengers.passenger_type = adult ou child; passengers_count é o
+total; a factura diz "1 adulto e 1 criança".
+"+1": nos cartões dos resultados e na ida seleccionada, a hora de chegada
+leva +1 (ou +2) quando o voo chega noutro dia (como já fazia o percurso).
+
 10. COMPRA E PAGAMENTO (WIZA OU MANUAL) E FACTURA (VERO)
 /compra: Revisão → Contacto (OTP) → Passageiros → Pagamento.
 Etapa Pagamento ("Como queres pagar?"), três opções, por esta ordem:
@@ -607,6 +661,29 @@ num pagamento falhado, "Pagar pelo WhatsApp" abre a conversa com a reserva.
 Endpoints: POST /api/checkout/quote · POST /api/bookings · GET /api/bookings ·
 GET /api/bookings/<ref> · POST /api/bookings/<ref>/check · POST /api/bookings/<ref>/pay ·
 POST /api/payments/wiza/callback · POST /api/internal/sweep.
+
+10A. E-MAILS DA COMPRA (RESEND)
+server/emails.mjs, com a Resend (domínio dotviagens.com verificado; remetente
+RESEND_FROM, por defeito "DOT Viagens <reservas@dotviagens.com>"; respostas
+para ADMIN_EMAIL). Quando o pagamento é confirmado (confirmPayment, qualquer
+caminho: Wiza, callback, sweep ou "Confirmar pagamento à mão"):
+1. À equipa (ADMIN_EMAIL, por defeito dotangola@gmail.com), logo: "Nova
+   compra paga · DOT-… · valor", com cliente, telemóvel, e-mail, pagamento,
+   voos, passageiros (nome, tipo, nascimento, nacionalidade; sem passaporte)
+   e o botão "Abrir a reserva no painel".
+2. Ao cliente (e-mail do contacto), depois da factura Vero: "Compra
+   confirmada", com reserva, total, voos (+1), passageiros, a factura-recibo
+   (botão para o PDF público da Vero e o PDF em anexo) e "Ver em Minhas
+   viagens". Se a factura falhar, o e-mail diz que segue depois; quando for
+   emitida (sweep ou "Emitir factura" no painel) vai sozinha num e-mail "A
+   tua factura". Com a chave de teste da Vero não há PDF.
+Design: as cores e letras do site (creme, ink, gradiente laranja, Manrope e
+DM Sans), logótipo em PUBLIC_BASE_URL/assets/logo-dot-320.png, tabelas para
+os clientes de e-mail. Cada e-mail tem Idempotency-Key
+(booking-<ref>-admin-paid, booking-<ref>-paid, booking-<ref>-invoice) e uma
+linha em email_messages: nunca sai duas vezes. Uma falha fica registada e
+nunca muda a venda. O painel mostra os e-mails de cada reserva e a Resend nas
+Integrações. Vendas registadas à mão (imported) não recebem e-mail.
 
 11. MINHAS VIAGENS
 /minhas-viagens (botão Minhas viagens do cabeçalho). Cabeçalho e rodapé da
@@ -768,7 +845,10 @@ Migrações (aplicar por ordem, uma vez, pelo MCP do Supabase ou no SQL Editor):
    search_logs.city (cidade aproximada do IP, até 60 caracteres);
    admin_search_journeys passa a devolver city (país e cidade da primeira
    consulta com cidade da jornada).
-As sete estão aplicadas no projecto ycbmqytyfdkrpxvjcblk (a 6.ª e a 7.ª a
+8. supabase/migrations/20261111215026_dot_viagens_children_cabin_email.sql:
+   search_logs.children e cabin, booking_passengers.passenger_type (adult ou
+   child) e a tabela email_messages (secção 10A). Aplicada a 11/11/2026.
+As oito estão aplicadas no projecto ycbmqytyfdkrpxvjcblk (a 6.ª e a 7.ª a
 10/11/2026).
 Dados de teste apagados a 8/11/2026 (reservas, passageiros, eventos de
 pagamento, SMS, pesquisas, auditoria e códigos OTP; booking_ref_seq voltou a
@@ -821,8 +901,12 @@ server/router.mjs: rotas /api e registo das pesquisas.
 server/http.mjs, crypto.mjs, phone.mjs: utilitários.
 server/flights.mjs: pesquisa, validação e cache. server/airport-codes.mjs:
 aeroportos aceites e países com o id do Google (GERADO, secção 3).
-server/places.mjs: aeroporto ou país (isCountry, isPlace, placeId,
-mainAirports), secção 3A.
+server/places.mjs: aeroporto, país ou cidade (isCountry, isCity, isGroup,
+isPlace, airportsOf, calendarId), secções 3A e 3B.
+server/city-airports.mjs, airport-names.mjs e public/city-airports.js:
+cidades com vários aeroportos e cidade de cada aeroporto (GERADOS por
+scripts/build-city-airports.mjs).
+server/emails.mjs: e-mails da compra (Resend), secção 10A.
 server/searchapi.mjs: SearchApi (pedidos, conversão para o formato SerpApi,
 partes do calendário de ida e volta).
 server/calendar.mjs: preços por dia (SerpApi Google Flights Calendar).
@@ -860,6 +944,8 @@ corepack pnpm build
 Variáveis do Worker (em desenvolvimento no ficheiro .dev.vars, fora do Git):
 SEARCHAPI_KEY · SERPAPI_KEY (reserva) · FLIGHTS_PROVIDER (opcional: serpapi
 para voltar à SerpApi) · SUPABASE_URL · SUPABASE_SECRET_KEY · NSANGU_API_KEY ·
+RESEND_API_KEY · RESEND_FROM (opcional) · ADMIN_EMAIL (opcional, e-mail da
+equipa que recebe as compras; por defeito dotangola@gmail.com) ·
 WIPAY_BASE_URL · WIPAY_CLIENT_ID · WIPAY_CLIENT_SECRET · WIPAY_WEBHOOK_SECRET ·
 VERO_API_KEY · VERO_ORG_ID · AUTH_SECRET · OFFER_SECRET · CRON_SECRET ·
 ADMIN_PHONES · PUBLIC_BASE_URL · OTP_HOURLY_LIMIT (opcional) ·
@@ -940,8 +1026,8 @@ Teste local do build: node scripts/vercel-build.mjs (gera dist-vercel/).
 
 16. PRÓXIMAS INTEGRAÇÕES
 booking_options/revalidação da tarifa antes de cobrar e emissão automática
-(consolidador ou GDS); crianças e bebés; regras de bagagem; e-mail com bilhete e
-factura (hoje: SMS e Minhas viagens); reembolso integrado; câmbio automático
+(consolidador ou GDS); bebés; regras de bagagem; e-mail com o bilhete emitido
+(a confirmação e a factura já vão por e-mail, secção 10A); reembolso integrado; câmbio automático
 (hoje manual); limite de pesquisas por visitante e orçamento diário da
 SerpApi (hoje: cache partilhado, pausa depois de um erro de limite e aviso de
 cota no painel); memória das pesquisas sem voos;

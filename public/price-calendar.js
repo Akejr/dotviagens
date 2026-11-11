@@ -62,15 +62,17 @@ export function loadPricing() {
 export const TRIP_LENGTHS = [3, 5, 7, 10, 14, 21, 30, 45, 60];
 export const standardTripDays = days => TRIP_LENGTHS.reduce((best, n) => (Math.abs(n - days) < Math.abs(best - days) ? n : best), TRIP_LENGTHS[0]);
 
-// Prices are always asked for 1 adult (one cache for 1 to 4 adults) and multiplied by the adults
-// when shown. The final price comes from the flight search.
+// Prices are always asked for 1 adult (one cache for 1 to 4 adults) and multiplied by the travellers
+// (adults and children, at the adult price) when shown: indicative. The final price comes from the
+// flight search, which carries the children. The class is part of the request (economy is the default).
 const requestBody = (query, month) => {
   const body = { origin: query.origin, destination: query.destination, passengers: 1, type: query.type, month };
+  if (query.cabin && query.cabin !== 'economy') body.cabin = query.cabin;
   if (query.fixedOutbound) body.fixedOutbound = query.fixedOutbound;
   else if (query.type === 'return') body.tripDays = query.tripDays || 7;
   return body;
 };
-export const adultsOf = query => Math.min(4, Math.max(1, Number(query?.passengers) || 1));
+export const adultsOf = query => Math.min(4, Math.max(1, Number(query?.passengers) || 1)) + Math.min(3, Math.max(0, Number(query?.children) || 0));
 
 export function hasMonth(query, month) {
   const saved = memory.get(JSON.stringify(requestBody(query, month)));
@@ -108,7 +110,7 @@ function knownPrices(query, month) {
       continue;
     }
     const offers = value?.data?.offers;
-    if (!q || q.selectedOutbound || q.departureToken || q.stops || !Array.isArray(offers) || !offers.length) continue;
+    if (!q || q.selectedOutbound || q.departureToken || q.stops || q.children || (q.cabin || 'economy') !== (query.cabin || 'economy') || !Array.isArray(offers) || !offers.length) continue;
     if (q.origin !== query.origin || q.destination !== query.destination || Boolean(q.returnDate) !== (query.type === 'return')) continue;
     let date = q.departureDate;
     if (query.fixedOutbound) {
@@ -208,7 +210,8 @@ const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 // What the number under each day means, for the legend.
 export function priceMeaning(query) {
   if (!query) return '';
-  const adults = plural(adultsOf(query), 'adulto', 'adultos');
+  const children = Math.max(0, Number(query.children) || 0);
+  const adults = `${plural(adultsOf(query) - children, 'adulto', 'adultos')}${children ? ` e ${plural(children, 'criança', 'crianças')}` : ''}`;
   if (query.type === 'oneway') return `Só ida · ${adults}`;
   if (query.fixedOutbound) return `Total ida e volta, com partida a ${query.fixedOutbound.split('-').reverse().slice(0, 2).join('/')} · ${adults}`;
   return `Ida e volta de ~${plural(query.tripDays || 7, 'dia', 'dias')} · ${adults}`;

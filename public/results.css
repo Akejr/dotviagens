@@ -125,3 +125,9 @@
 .alert-error .secondary{width:100%;min-height:46px}
 @media(max-width:560px){.alert-dialog{padding:22px 18px 20px}.alert-dialog h2{font-size:20px}}
 @media(prefers-reduced-motion:reduce){.alert-dialog .spinner{animation:none}}
+/* Arrival on a later day (+1) and the class of each flight */
+.flight-times em{font-style:normal}.flight-times sup{font-size:11px;font-weight:700;color:#ed6404;margin-left:2px;letter-spacing:0;vertical-align:super}
+.selection-banner sup,#selection-banner sup{font-size:9px;color:#ed6404;margin-left:1px}
+.offer-cabins{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:0 23px 16px;margin-top:-6px}.offer-cabins>span{font-size:9px;letter-spacing:1.2px;text-transform:uppercase;color:#92998b;margin-right:4px}.offer-cabins button{border:1px solid #e8e9e3;background:#fff;border-radius:999px;padding:6px 12px;font:inherit;font-size:11px;color:#4b4f45;cursor:pointer;transition:border-color .15s,background .15s}.offer-cabins button:hover{border-color:#f9a862}.offer-cabins button[aria-pressed=true]{background:#fff2e6;border-color:#ef5900;color:#c84a00;font-weight:600}
+.flight-price.muted-price{color:#9ba293;font-size:16px;letter-spacing:0}
+@media(max-width:700px){.offer-cabins{padding:0 16px 14px;margin-top:-4px}.offer-cabins button{padding:6px 10px;font-size:10.5px}}

@@ -1,4 +1,4 @@
-import {isPlace,placeId,isCountry,mainAirports,airportsPerSide} from './places.mjs';
+import {isPlace,placeId,isGroup,airportsOf,airportsPerSide} from './places.mjs';
 import {safeLogo,signResult,signedQuery,signOffer} from './offers.mjs';
 import {searchApiOn,searchApiFlightsUrl,adaptFlights} from './searchapi.mjs';
 const memo=new Map(), pending=new Map();
@@ -10,6 +10,8 @@ function remember(key,data){if(memo.size>=100)memo.delete(memo.keys().next().val
 // age: how old the result already is, so the browser keeps it only for the rest of the 25 minutes.
 const reused=data=>({...data,cached:true,age:Math.max(0,Date.now()-(Date.parse(data.searchedAt)||Date.now()))});
 const PAUSED='As pesquisas de voos estão em pausa por alguns minutos. Tenta novamente mais tarde ou fala connosco no WhatsApp.';
+// Travel classes: SearchApi name (the key), label on the site and SerpApi number.
+export const CABINS={economy:{label:'Económica',serp:'1'},premium_economy:{label:'Económica premium',serp:'2'},business:{label:'Executiva',serp:'3'},first:{label:'Primeira',serp:'4'}};
 export function validate(q){
  const date=s=>typeof s==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(s)&&!isNaN(Date.parse(s))&&new Date(s).toISOString().slice(0,10)===s;
  const today=new Date().toISOString().slice(0,10);
@@ -18,13 +20,19 @@ export function validate(q){
  if(!date(q.departureDate)||q.departureDate<today||q.departureDate>new Date(Date.now()+330*86400000).toISOString().slice(0,10))throw Error('Escolhe uma data nos próximos 330 dias.');
  if(q.returnDate&&(!date(q.returnDate)||q.returnDate<q.departureDate||q.returnDate>new Date(Date.now()+330*86400000).toISOString().slice(0,10)))throw Error('Confirma a data de regresso.');
  if(q.stops!==undefined&&q.stops!==0&&q.stops!==1)throw Error('Filtro de escalas inválido.');
- if(!Number.isInteger(q.passengers)||q.passengers<1||q.passengers>4||q.cabin!=='economy')throw Error('Pesquisa disponível para 1 a 4 adultos em económica.');
+ // passengers = adults (12+); children = 2 to 11 years. Babies are sold by the team (WhatsApp).
+ const children=q.children??0,cabin=q.cabin??'economy';
+ if(!Number.isInteger(q.passengers)||q.passengers<1||q.passengers>4)throw Error('Pesquisa disponível para 1 a 4 adultos.');
+ if(!Number.isInteger(children)||children<0||children>3)throw Error('Pesquisa disponível para até 3 crianças.');
+ if(!Object.hasOwn(CABINS,cabin))throw Error('Classe de viagem inválida.');
  if(q.departureToken&&(!q.returnDate||typeof q.departureToken!=='string'||q.departureToken.length>12000||!/^[-_a-zA-Z0-9=+/]+$/.test(q.departureToken)))throw Error('Selecção de ida inválida. Pesquisa novamente.');
- return {departureToken:q.departureToken||null,origin:q.origin,destination:q.destination,departureDate:q.departureDate,returnDate:q.returnDate||null,passengers:q.passengers,cabin:'economy',stops:q.stops??0};
+ // children only when there are some: the searches of adults keep their cache keys and signatures.
+ return {departureToken:q.departureToken||null,origin:q.origin,destination:q.destination,departureDate:q.departureDate,returnDate:q.returnDate||null,passengers:q.passengers,...(children?{children}:{}),cabin,stops:q.stops??0};
 }
-export function normalize(data){
+export function normalize(data,cabin='economy'){
+ const cabinLabel=(CABINS[cabin]||CABINS.economy).label;
  const rows=[...(data.best_flights||[]),...(data.other_flights||[])];const seen=new Set();
- return rows.filter(o=>Array.isArray(o.flights)&&o.flights.length&&Number.isFinite(o.price)).map((o,i)=>({id:String(i),departureToken:o.departure_token||null,bookingToken:o.booking_token||null,logo:safeLogo(o.airline_logo||o.flights[0]?.airline_logo),airline:[...new Set(o.flights.map(f=>f.airline).filter(Boolean))].join(' / '),segments:o.flights.map(f=>({airline:f.airline||'',logo:safeLogo(f.airline_logo),number:f.flight_number||'',from:f.departure_airport?.id||'',to:f.arrival_airport?.id||'',departure:f.departure_airport?.time||'',arrival:f.arrival_airport?.time||'',duration:f.duration||0})),layovers:(o.layovers||[]).map(l=>({airport:l.id||'',name:l.name||'',duration:l.duration||0,overnight:!!l.overnight})),duration:o.total_duration||0,amount:o.price,currency:'BRL',stops:o.flights.length-1,cabin:'Económica'})).filter(o=>{const k=JSON.stringify([o.segments,o.amount]);if(seen.has(k))return false;seen.add(k);return true});
+ return rows.filter(o=>Array.isArray(o.flights)&&o.flights.length&&Number.isFinite(o.price)).map((o,i)=>({id:String(i),departureToken:o.departure_token||null,bookingToken:o.booking_token||null,logo:safeLogo(o.airline_logo||o.flights[0]?.airline_logo),airline:[...new Set(o.flights.map(f=>f.airline).filter(Boolean))].join(' / '),segments:o.flights.map(f=>({airline:f.airline||'',logo:safeLogo(f.airline_logo),number:f.flight_number||'',from:f.departure_airport?.id||'',to:f.arrival_airport?.id||'',departure:f.departure_airport?.time||'',arrival:f.arrival_airport?.time||'',duration:f.duration||0})),layovers:(o.layovers||[]).map(l=>({airport:l.id||'',name:l.name||'',duration:l.duration||0,overnight:!!l.overnight})),duration:o.total_duration||0,amount:o.price,currency:'BRL',stops:o.flights.length-1,cabin:cabinLabel})).filter(o=>{const k=JSON.stringify([o.segments,o.amount]);if(seen.has(k))return false;seen.add(k);return true});
 }
 // SerpApi answers "Success" plus an error string when Google has no flights: that is an empty result, not a failure.
 // SerpApi: "hasn't returned any results"; SearchApi: "didn't return any results".
@@ -32,15 +40,16 @@ export const noResults=d=>typeof d?.error==='string'&&/(hasn.t returned|didn.t r
 // sid: browser session; jid: one results-page search (all its dates and returns share it).
 const safeId=v=>typeof v==='string'&&/^[A-Za-z0-9-]{8,64}$/.test(v)?v:null;
 const metaOf=b=>({kind:typeof b?.kind==='string'?b.kind.slice(0,24):null,sid:safeId(b?.sid),jid:safeId(b?.jid)});
-// A whole country: its main airports (up to 3; 2 x 2 when both ends are countries) are searched one by
-// one, like any airport search (caches, records, alerts), and merged. Google answers multi-airport
-// searches slowly and SearchApi then returns a short or empty list (11/11/2026, Luanda -> Portugal on
-// 1/2/2027: 3 TAAG flights to Lisbon, while Google showed 11, Porto cheaper). Each offer keeps the
-// airport search it came from (query, searchedAt), re-signed with its new id: checkout and the
-// return of a round trip use that search. Null when the country has no main airports.
+// A whole country (its main airports, up to 3) or a city with several airports (up to 4; 2 x 2 when
+// both ends are groups): each airport is searched one by one, like any airport search (caches,
+// records, alerts), and merged. Google answers multi-airport searches slowly and SearchApi then
+// returns a short or empty list (11/11/2026, Luanda -> Portugal on 1/2/2027: 3 TAAG flights to Lisbon,
+// while Google showed 11, Porto cheaper). Each offer keeps the airport search it came from (query,
+// searchedAt), re-signed with its new id: checkout and the return of a round trip use that search.
+// Null when the group has no airports.
 async function searchCountry(request,raw,q,env,fetcher,hooks){
  const take=airportsPerSide(q.origin,q.destination);
- const ends=code=>isCountry(code)?mainAirports(code).slice(0,take):[code];
+ const ends=code=>airportsOf(code,take);
  const pairs=[];for(const origin of ends(q.origin))for(const destination of ends(q.destination))if(origin!==destination)pairs.push([origin,destination]);
  if(!pairs.length)return null;
  const answers=await Promise.all(pairs.map(async([origin,destination])=>{try{const response=await handleSearch(new Request(request.url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({...raw,origin,destination})}),env,fetcher,hooks);return {status:response.status,data:await response.json()}}catch{return {status:502,data:null}}}));
@@ -56,7 +65,7 @@ export async function handleSearch(request,env,fetcher=fetch,hooks={}){
  // SearchApi when SEARCHAPI_KEY is set (see searchapi.mjs), otherwise SerpApi. Its cache keys are apart.
  const viaSearchApi=searchApiOn(env);
  if(!viaSearchApi&&!env.SERPAPI_KEY)return json({error:'A pesquisa ainda não está configurada.'},503);
- if(!q.departureToken&&(isCountry(q.origin)||isCountry(q.destination))){const merged=await searchCountry(request,raw,q,env,fetcher,hooks);if(merged)return merged}
+ if(!q.departureToken&&(isGroup(q.origin)||isGroup(q.destination))){const merged=await searchCountry(request,raw,q,env,fetcher,hooks);if(merged)return merged}
  const started=Date.now();const report=(result,status,errorCode=null)=>{try{hooks.onSearch?.({q,meta,status,errorCode,cached:!!result?.cached,offers:result?.offers||[],durationMs:Date.now()-started})}catch{}};
  const key=(viaSearchApi?'searchapi|':'')+JSON.stringify(q);const saved=memo.get(key);if(saved&&saved.until>Date.now()){const result=reused(saved.data);report(result,result.offers.length?'ok':'empty');return json(result)}
  if(pending.has(key))return pending.get(key).then(r=>r.clone());
@@ -67,12 +76,12 @@ export async function handleSearch(request,env,fetcher=fetch,hooks={}){
  // After a quota error SerpApi is paused for a few minutes on every instance: no call is made.
  const paused=Number(await Promise.resolve(hooks.pausedUntil?.()).catch(()=>0))||0;
  if(paused>Date.now())return json({error:hooks.pauseMessage?.(paused)||PAUSED,code:'PROVIDER_PAUSED',retryAt:new Date(paused).toISOString()},503);
- let url;if(viaSearchApi)url=searchApiFlightsUrl(env,q);else{url=new URL('https://serpapi.com/search.json');url.search=new URLSearchParams({engine:'google_flights',api_key:env.SERPAPI_KEY,departure_id:placeId(q.origin),arrival_id:placeId(q.destination),outbound_date:q.departureDate,...(q.returnDate?{return_date:q.returnDate}:{}),type:q.returnDate?'1':'2',...(q.departureToken?{departure_token:q.departureToken}:{}),adults:String(q.passengers),travel_class:'1',stops:String(q.stops),currency:'BRL',hl:'pt',gl:'pt'}).toString()}
+ let url;if(viaSearchApi)url=searchApiFlightsUrl(env,q);else{url=new URL('https://serpapi.com/search.json');url.search=new URLSearchParams({engine:'google_flights',api_key:env.SERPAPI_KEY,departure_id:placeId(q.origin),arrival_id:placeId(q.destination),outbound_date:q.departureDate,...(q.returnDate?{return_date:q.returnDate}:{}),type:q.returnDate?'1':'2',...(q.departureToken?{departure_token:q.departureToken}:{}),adults:String(q.passengers),...(q.children?{children:String(q.children)}:{}),travel_class:CABINS[q.cabin].serp,stops:String(q.stops),currency:'BRL',hl:'pt',gl:'pt'}).toString()}
  const response=await fetcher(url,{signal:AbortSignal.timeout(45000)});const raw=await response.json();const data=viaSearchApi?adaptFlights(raw):raw;
  if(response.status===401||response.status===403){report(null,'error','PROVIDER_AUTH');return json({error:`A ${viaSearchApi?'SearchApi':'SerpApi'} recusou a chave de acesso. Confirma a chave no painel do fornecedor.`,code:'PROVIDER_AUTH'},502)}
  if(response.status===429){const until=hooks.onLimit?.();report(null,'error','PROVIDER_LIMIT');return json({error:until&&hooks.pauseMessage?hooks.pauseMessage(until):PAUSED,code:'PROVIDER_LIMIT'},429)}
  if(!response.ok||(data.error&&!noResults(data))){report(null,'error','PROVIDER_ERROR');return json({error:'O fornecedor não conseguiu concluir esta pesquisa. Tenta outras datas ou tenta novamente.',code:'PROVIDER_ERROR'},502)}
- let result={demo:false,offers:normalize(data),currency:'BRL',passengers:q.passengers,roundTrip:!!q.returnDate,searchedAt:new Date().toISOString(),cached:false};
+ let result={demo:false,offers:normalize(data,q.cabin),currency:'BRL',passengers:q.passengers,roundTrip:!!q.returnDate,searchedAt:new Date().toISOString(),cached:false};
  // Signed offers let checkout trust the price without a new paid search.
  result=env.OFFER_SECRET?await signResult(env.OFFER_SECRET,result,q):{...result,query:signedQuery(q)};
  remember(key,result);report(result,result.offers.length?'ok':'empty');

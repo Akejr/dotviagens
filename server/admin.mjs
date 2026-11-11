@@ -11,7 +11,8 @@ import { hasSms, smsBalance, smsStatus, smsText } from './sms.mjs';
 import { hasWiza } from './wiza.mjs';
 import { hasVero, isVeroSandbox } from './vero.mjs';
 import { sendAndRecord } from './notify.mjs';
-import { syncPayment, confirmPayment, issueBookingInvoice, refreshInvoiceStatus, runSweep, logEvent, REFERENCE, STATUS_LABEL } from './bookings.mjs';
+import { syncPayment, confirmPayment, issueBookingInvoice, refreshInvoiceStatus, runSweep, logEvent, sendLateInvoice, REFERENCE, STATUS_LABEL } from './bookings.mjs';
+import { hasEmail } from './emails.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STATUSES = new Set(Object.keys(STATUS_LABEL));
@@ -40,6 +41,7 @@ const integrations = env => ({
   search: searchApiOn(env) || Boolean(env.SERPAPI_KEY),
   searchProvider: providerName(env),
   sms: hasSms(env),
+  email: hasEmail(env),
   payments: hasWiza(env),
   invoices: hasVero(env),
   invoicesSandbox: isVeroSandbox(env),
@@ -207,12 +209,13 @@ async function loadBooking(store, reference) {
 
 async function bookingPayload(store, reference, env) {
   const booking = await loadBooking(store, reference);
-  const [events, sms, auditRows] = await Promise.all([
+  const [events, sms, auditRows, emails] = await Promise.all([
     store.select('payment_events', { select: '*', booking_id: `eq.${booking.id}`, order: 'id.desc', limit: 100 }),
     store.select('sms_messages', { select: '*', booking_id: `eq.${booking.id}`, order: 'created_at.desc', limit: 50 }),
     store.select('admin_audit', { select: '*,admin:customers(name,phone)', target: `eq.${booking.reference}`, order: 'id.desc', limit: 50 }),
+    store.select('email_messages', { select: '*', booking_id: `eq.${booking.id}`, order: 'created_at.desc', limit: 20 }).catch(() => []),
   ]);
-  return { booking, events, sms, audit: auditRows, statusLabel: STATUS_LABEL[booking.status], invoicesSandbox: isVeroSandbox(env) };
+  return { booking, events, sms, emails, audit: auditRows, statusLabel: STATUS_LABEL[booking.status], invoicesSandbox: isVeroSandbox(env) };
 }
 
 export async function bookingDetail(request, env, ctx, deps) {
@@ -302,9 +305,12 @@ export async function bookingAction(request, env, ctx, deps) {
     case 'invoice': {
       if (!['paid', 'ticketed'].includes(booking.status)) throw new HttpError(409, 'A factura só é emitida depois do pagamento.', 'INVALID_STATE');
       try {
+        const issued = !booking.vero_invoice_id;
         booking = booking.vero_invoice_id
           ? await refreshInvoiceStatus(env, store, booking, deps)
           : await issueBookingInvoice(env, store, booking, deps, { poll: false });
+        // A first invoice for a site sale reaches the customer by e-mail (not for sales made outside).
+        if (issued && booking.vero_invoice_id && !booking.imported) await sendLateInvoice(env, store, { ...booking, booking_passengers: (await loadBooking(store, reference)).booking_passengers }, deps);
       } catch (error) {
         result.invoiceError = `A factura não foi emitida (${error.code || 'erro'}).`;
       }

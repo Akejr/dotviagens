@@ -38,8 +38,14 @@ const city = code => cities[code] || code;
 const tripEnds = quote => {
   const q = quote.query;
   const legs = quote.outbound?.segments || [];
-  return { ...q, origin: q.origin.length === 2 ? legs[0]?.from || q.origin : q.origin, destination: q.destination.length === 2 ? legs.at(-1)?.to || q.destination : q.destination };
+  // A country ("PT") or a city with several airports ("SVO,DME,VKO,ZIA").
+  const group = code => code.length === 2 || code.includes(',');
+  return { ...q, origin: group(q.origin) ? legs[0]?.from || q.origin : q.origin, destination: group(q.destination) ? legs.at(-1)?.to || q.destination : q.destination };
 };
+const CABIN_LABEL = { economy: 'Económica', premium_economy: 'Económica premium', business: 'Executiva', first: 'Primeira' };
+// "2 adultos e 1 criança" (the quote's query carries adults in passengers and the children apart).
+const travellers = q => `${plural(q.passengers, 'adulto', 'adultos')}${q.children ? ` e ${plural(q.children, 'criança', 'crianças')}` : ''}`;
+const totalPassengers = q => q.passengers + (q.children || 0);
 const clock = value => esc(String(value || '').slice(11, 16));
 const dayOf = value => String(value || '').slice(0, 10);
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
@@ -71,7 +77,7 @@ function legSummary(leg, label) {
 }
 
 function tripCard({ passengers, outbound, inbound, amountAoa, totalLabel, note = '' }) {
-  return `<div class="trip-card"><div class="trip-card-head"><span class="eyebrow">A TUA VIAGEM</span><span>${inbound ? 'Ida e volta' : 'Só ida'} · ${plural(passengers, 'adulto', 'adultos')}</span></div>
+  return `<div class="trip-card"><div class="trip-card-head"><span class="eyebrow">A TUA VIAGEM</span><span>${inbound ? 'Ida e volta' : 'Só ida'} · ${typeof passengers === 'string' ? esc(passengers) : plural(passengers, 'passageiro', 'passageiros')}</span></div>
     ${legSummary(outbound, 'IDA')}${inbound ? legSummary(inbound, 'VOLTA') : ''}
     <div class="trip-total"><span>${esc(totalLabel)}</span><strong>${formatKz(amountAoa)}</strong>${note ? `<p>${note}</p>` : ''}</div></div>`;
 }
@@ -90,7 +96,7 @@ function legCard(leg, label, date) {
 function backUrl() {
   const q = state.itinerary?.outbound?.query || state.quote?.query;
   if (!q) return '/#pesquisa';
-  const search = new URLSearchParams({ origin: q.origin, destination: q.destination, departureDate: q.departureDate, passengers: String(q.passengers), cabin: 'economy' });
+  const search = new URLSearchParams({ origin: q.origin, destination: q.destination, departureDate: q.departureDate, passengers: String(q.passengers), ...(q.children ? { children: String(q.children) } : {}), cabin: q.cabin || 'economy' });
   if (q.returnDate) search.set('returnDate', q.returnDate);
   return `/resultados?${search}`;
 }
@@ -98,7 +104,7 @@ function backUrl() {
 function renderHeading(info) {
   if (!info) return;
   $('#checkout-title').innerHTML = `${esc(city(info.origin))} <span>→</span> ${esc(city(info.destination))}`;
-  $('#checkout-meta').textContent = `${formatDate(info.departureDate)}${info.returnDate ? ` — ${formatDate(info.returnDate)}` : ''} · ${info.returnDate ? 'Ida e volta' : 'Só ida'} · ${plural(info.passengers, 'adulto', 'adultos')} · Económica`;
+  $('#checkout-meta').textContent = `${formatDate(info.departureDate)}${info.returnDate ? ` — ${formatDate(info.returnDate)}` : ''} · ${info.returnDate ? 'Ida e volta' : 'Só ida'} · ${travellers(info)} · ${CABIN_LABEL[info.cabin] || 'Económica'}`;
   $('#back-link').href = backUrl();
 }
 
@@ -117,11 +123,11 @@ function renderAside() {
     return;
   }
   aside.innerHTML = tripCard({
-    passengers: q.query.passengers,
+    passengers: travellers(q.query),
     outbound: q.outbound,
     inbound: q.inbound,
     amountAoa: q.amountAoa,
-    totalLabel: `Total para ${plural(q.query.passengers, 'adulto', 'adultos')}`,
+    totalLabel: `Total para ${travellers(q.query)}`,
     note: `Preço final, com taxas incluídas.${q.expiresAt ? ` Garantido até às ${esc(clockOf(q.expiresAt))}.` : ''}`,
   });
 }
@@ -209,6 +215,13 @@ const plusMonths = (iso, months) => {
 const addYears = (iso, years) => plusMonths(iso, years * 12);
 const NAME = /^[\p{L}][\p{L}'’ -]*$/u;
 
+// Birth dates allowed: adults 12+ on the departure day; children 2 to 11 (born after the day they
+// would turn 12 and on or before the day they turn 2).
+const birthRange = (type, departureDate) => (type === 'child'
+  ? { min: plusDays(addYears(departureDate, -12), 1), max: addYears(departureDate, -2) }
+  : { min: '1900-01-01', max: addYears(departureDate, -12) });
+const plusDays = (iso, days) => new Date(Date.parse(`${iso}T12:00:00Z`) + days * 86400000).toISOString().slice(0, 10);
+
 function passengerError(p) {
   const q = state.quote;
   const today = new Date().toISOString().slice(0, 10);
@@ -216,7 +229,9 @@ function passengerError(p) {
   if (p.givenNames.trim().length < 2 || !NAME.test(p.givenNames.trim())) return ['givenNames', 'indica o(s) nome(s) próprio(s) como no passaporte.'];
   if (p.surname.trim().length < 2 || !NAME.test(p.surname.trim())) return ['surname', 'indica o(s) apelido(s) como no passaporte.'];
   if (!p.birthDate || p.birthDate >= today) return ['birthDate', 'confirma a data de nascimento.'];
-  if (p.birthDate > addYears(q.query.departureDate, -12)) return ['birthDate', 'nesta versão só vendemos para adultos (12 anos ou mais na data da viagem).'];
+  const range = birthRange(p.type, q.query.departureDate);
+  if (p.type === 'child' && (p.birthDate < range.min || p.birthDate > range.max)) return ['birthDate', 'uma criança tem de ter entre 2 e 11 anos na data da viagem.'];
+  if (p.type !== 'child' && p.birthDate > range.max) return ['birthDate', 'um adulto tem de ter 12 anos ou mais na data da viagem.'];
   if (!/^[A-Z0-9]{5,20}$/.test(p.documentNumber.toUpperCase().replace(/[\s-]/g, ''))) return ['documentNumber', 'confirma o número do passaporte.'];
   if (!p.documentExpiry || p.documentExpiry <= q.lastTravelDate) return ['documentExpiry', 'o passaporte tem de estar válido para além da data da viagem.'];
   return null;
@@ -224,14 +239,15 @@ function passengerError(p) {
 
 function renderPassengers() {
   const q = state.quote;
-  while (state.passengers.length < q.query.passengers) state.passengers.push(emptyPassenger());
-  state.passengers.length = q.query.passengers;
-  const maxBirth = addYears(q.query.departureDate, -12);
+  // Adults first, then children (the server checks the same order).
+  while (state.passengers.length < totalPassengers(q.query)) state.passengers.push(emptyPassenger());
+  state.passengers.length = totalPassengers(q.query);
+  state.passengers.forEach((p, i) => { p.type = i < q.query.passengers ? 'adult' : 'child'; });
   main.innerHTML = `<div class="panel"><div class="panel-head"><span class="round-icon">${icon('idCard', 22)}</span><div><h2>Dados dos passageiros</h2><p>Escreve os nomes exactamente como aparecem no passaporte. A companhia aérea pode recusar o embarque se não coincidirem.</p></div></div>
-    ${state.passengers.map((p, i) => `<article class="passenger-card" data-index="${i}"><div class="passenger-head"><span class="passenger-num">${i + 1}</span><div><h3>Passageiro ${i + 1}</h3><small>Adulto · 12 anos ou mais na data da viagem</small></div></div>
+    ${state.passengers.map((p, i) => `<article class="passenger-card" data-index="${i}"><div class="passenger-head"><span class="passenger-num">${i + 1}</span><div><h3>Passageiro ${i + 1}</h3><small>${p.type === 'child' ? 'Criança · 2 a 11 anos na data da viagem' : 'Adulto · 12 anos ou mais na data da viagem'}</small></div></div>
       <div class="form-grid">
         <label class="form-field"><span>Tratamento</span><select name="title"><option value="">Escolhe</option><option value="MR" ${p.title === 'MR' ? 'selected' : ''}>Sr.</option><option value="MS" ${p.title === 'MS' ? 'selected' : ''}>Sra.</option></select></label>
-        <label class="form-field"><span>Data de nascimento</span><input type="date" name="birthDate" min="1900-01-01" max="${maxBirth}" value="${esc(p.birthDate)}"></label>
+        <label class="form-field"><span>Data de nascimento</span><input type="date" name="birthDate" min="${birthRange(p.type, q.query.departureDate).min}" max="${birthRange(p.type, q.query.departureDate).max}" value="${esc(p.birthDate)}"></label>
         <label class="form-field"><span>Nome(s) próprio(s) <small>como no passaporte</small></span><input name="givenNames" autocomplete="${i ? 'off' : 'given-name'}" maxlength="60" value="${esc(p.givenNames)}"></label>
         <label class="form-field"><span>Apelido(s) <small>como no passaporte</small></span><input name="surname" autocomplete="${i ? 'off' : 'family-name'}" maxlength="60" value="${esc(p.surname)}"></label>
         <label class="form-field"><span>Nacionalidade</span><select name="nationality">${countryOptions(p.nationality)}</select></label>
@@ -459,7 +475,7 @@ async function payManual() {
       outbound: q.outbound,
       inbound: q.inbound,
       passengers: state.passengers,
-      passengersCount: q.query.passengers,
+      passengersCount: totalPassengers(q.query),
       amountAoa: result.amountAoa,
       contact: { name: state.contact.name, phone: state.customer?.phone },
     }, city));
@@ -673,7 +689,7 @@ async function retry() {
 // Status page frame: route heading, back link to Minhas viagens and the trip card.
 // Rendered again when the airport list arrives, so the cities replace the codes.
 function renderBookingFrame(booking) {
-  renderHeading({ origin: booking.origin, destination: booking.destination, departureDate: booking.departureDate, returnDate: booking.returnDate, passengers: booking.passengersCount });
+  renderHeading({ origin: booking.origin, destination: booking.destination, departureDate: booking.departureDate, returnDate: booking.returnDate, passengers: booking.passengersCount - (booking.childrenCount || 0), children: booking.childrenCount || 0, cabin: booking.cabin });
   $('#back-link').href = '/minhas-viagens';
   $('#back-link .back-text').textContent = 'Minhas viagens';
   const legs = booking.itinerary;
