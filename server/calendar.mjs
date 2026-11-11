@@ -1,5 +1,5 @@
-// Indicative price per day for the date pickers (SerpApi Google Flights Calendar API).
-// One provider call per month view, memoised for 30 minutes. Prices stay in BRL:
+// Indicative price per day for the date pickers (Google Flights Calendar via SearchApi, or SerpApi).
+// SerpApi: one provider call per month view; SearchApi round trips: 3 parts. Memoised 30 minutes. Prices stay in BRL:
 // the browser applies the câmbio do dia and the DOT fee, like every other price.
 
 import { airports } from './airport-codes.mjs';
@@ -7,6 +7,7 @@ import { HttpError, json, readJson, assertSameOrigin, isoDate, defer } from './h
 import { noResults } from './flights.mjs';
 import { db, hasSupabase } from './supabase.mjs';
 import { pausedUntil, pauseProvider, pauseMessage } from './provider.mjs';
+import { searchApiOn, searchApiCalendar, calendarParts } from './searchapi.mjs';
 
 const DAY_MS = 86400000;
 const MAX_AHEAD_DAYS = 330;
@@ -37,6 +38,9 @@ export function validateCalendar(body, now = Date.now()) {
   if (!airports.has(origin) || !airports.has(destination) || origin === destination) fail('Escolhe aeroportos diferentes da lista.');
   const passengers = body.passengers ?? 1;
   if (!Number.isInteger(passengers) || passengers < 1 || passengers > 4) fail('Pesquisa disponível para 1 a 4 adultos.');
+  // Part of the month (SearchApi round trips only; ignored otherwise).
+  const part = body.part ?? null;
+  if (part !== null && (!Number.isInteger(part) || part < 0 || part > 9)) fail('Parte do mês inválida.');
   if (type !== 'oneway' && type !== 'return') fail('Tipo de viagem inválido.');
   if (typeof month !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) fail('Mês inválido.');
   const today = new Date(now).toISOString().slice(0, 10);
@@ -62,7 +66,7 @@ export function validateCalendar(body, now = Date.now()) {
     const limit = addDays(fixedOutbound, MAX_SPAN_DAYS);
     if (end > limit) end = limit;
   }
-  return { origin, destination, passengers, type, month, monthStart, start, end, fixedOutbound, tripDays, empty: end < start || end < monthStart };
+  return { origin, destination, passengers, type, month, monthStart, start, end, fixedOutbound, tripDays, part, empty: end < start || end < monthStart };
 }
 
 export function normalizeCalendar(data, q) {
@@ -117,14 +121,18 @@ async function fetchPrices(env, q, key, fetcher, hooks, onLimit = () => 0) {
   let response;
   let data;
   try {
-    response = await fetcher(url, { signal: AbortSignal.timeout(30000) });
-    data = await response.json();
+    if (searchApiOn(env)) {
+      ({ response, data } = await searchApiCalendar(env, q, fetcher));
+    } else {
+      response = await fetcher(url, { signal: AbortSignal.timeout(30000) });
+      data = await response.json();
+    }
   } catch {
     throw fail(502, 'Os preços do calendário não estão disponíveis agora.', 'PROVIDER_UNAVAILABLE');
   }
-  if (response.status === 401 || response.status === 403) throw fail(502, 'A SerpApi recusou a chave de acesso.', 'PROVIDER_AUTH');
+  if (response.status === 401 || response.status === 403) throw fail(502, `A ${searchApiOn(env) ? 'SearchApi' : 'SerpApi'} recusou a chave de acesso.`, 'PROVIDER_AUTH');
   if (response.status === 429) {
-    // Quota or hourly limit reached: SerpApi is paused for a few minutes on every instance.
+    // Quota or hourly limit reached: the provider is paused for a few minutes on every instance.
     const until = onLimit();
     throw fail(429, until ? pauseMessage(until) : 'Os preços do calendário não estão disponíveis agora.', 'PROVIDER_LIMIT');
   }
@@ -166,7 +174,7 @@ const cacheKey = q => [q.origin, q.destination, q.passengers, q.type, q.start, q
 export async function handleCalendar(request, env, ctx, deps, hooks = {}) {
   assertSameOrigin(request);
   const q = validateCalendar(await readJson(request, 2000));
-  const answer = (prices, cached) => json({
+  const answer = (prices, cached, extra = {}) => json({
     currency: 'BRL',
     type: q.type,
     month: q.month,
@@ -177,10 +185,22 @@ export async function handleCalendar(request, env, ctx, deps, hooks = {}) {
     passengers: q.passengers,
     prices,
     cached,
+    ...extra,
   });
   if (q.empty) return answer([], true);
-  if (!env.SERPAPI_KEY) throw new HttpError(503, 'A pesquisa ainda não está configurada.', 'SEARCH_NOT_CONFIGURED');
-  const key = cacheKey(q);
+  const viaSearchApi = searchApiOn(env);
+  // SearchApi round trips come in parts (see searchapi.mjs): without `part` the answer only says how
+  // many there are (no provider call); the browser then asks every part at once and shows each one
+  // as it arrives. Each part is cached on its own (its dates are in the cache key).
+  const parts = viaSearchApi ? calendarParts(q) : null;
+  if (parts && q.part === null) return answer([], false, { parts: parts.length });
+  if (parts) {
+    if (q.part >= parts.length) throw new HttpError(400, 'Parte do mês inválida.', 'INVALID_CALENDAR');
+    [q.start, q.end] = parts[q.part];
+  }
+  if (!viaSearchApi && !env.SERPAPI_KEY) throw new HttpError(503, 'A pesquisa ainda não está configurada.', 'SEARCH_NOT_CONFIGURED');
+  // SearchApi months are cached apart from the SerpApi ones (memory and calendar_cache).
+  const key = (viaSearchApi ? 'searchapi|' : '') + cacheKey(q);
   const saved = memo.get(key);
   if (saved && saved.until > Date.now()) return answer(saved.prices, true);
   if (!pending.has(key)) {

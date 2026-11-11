@@ -77,32 +77,65 @@ export function hasMonth(query, month) {
   return Boolean(saved && saved.until > Date.now());
 }
 
+const postCalendar = body => fetch('/api/flights/calendar', {
+  method: 'POST',
+  headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+  body: JSON.stringify(body),
+  signal: AbortSignal.timeout(40000),
+}).then(async response => {
+  const data = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(data?.error || 'Preços indisponíveis.');
+  return data;
+});
+
 // Map of 'YYYY-MM-DD' -> { amount (BRL for 1 adult), ... } for one month of one query.
-export function monthPrices(query, month) {
+// When the server answers with `parts` (slow providers), every part is asked at once and
+// onPartial(map) receives the days found so far as each part arrives.
+export function monthPrices(query, month, onPartial) {
   const body = requestBody(query, month);
   const key = JSON.stringify(body);
   const saved = memory.get(key);
   if (saved && saved.until > Date.now()) return Promise.resolve(new Map(saved.prices));
-  if (pending.has(key)) return pending.get(key);
-  const task = fetch('/api/flights/calendar', {
-    method: 'POST',
-    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(40000),
-  }).then(async response => {
-    const data = await response.json().catch(() => null);
-    if (!response.ok) throw new Error(data?.error || 'Preços indisponíveis.');
-    const prices = (data?.prices || []).map(price => [price.date, price]);
-    memory.set(key, { prices, until: Date.now() + TTL });
-    persist();
-    return new Map(prices);
-  }).finally(() => pending.delete(key));
-  pending.set(key, task);
-  return task;
+  let job = pending.get(key);
+  if (!job) {
+    const listeners = new Set();
+    const task = (async () => {
+      const first = await postCalendar(body);
+      let prices = (first?.prices || []).map(price => [price.date, price]);
+      let complete = true;
+      if (Number.isInteger(first?.parts) && first.parts > 1) {
+        const found = new Map();
+        const results = await Promise.allSettled(Array.from({ length: first.parts }, (_, part) => postCalendar({ ...body, part }).then(data => {
+          for (const price of data?.prices || []) found.set(price.date, price);
+          for (const listener of listeners) {
+            try {
+              listener(new Map(found));
+            } catch {
+              // A calendar that was closed or re-rendered never stops the other parts.
+            }
+          }
+        })));
+        const failed = results.filter(result => result.status === 'rejected');
+        if (failed.length === first.parts) throw failed[0].reason;
+        complete = !failed.length;
+        prices = [...found];
+      }
+      // A month with a missing part is not kept, so the next opening asks it again.
+      if (complete) {
+        memory.set(key, { prices, until: Date.now() + TTL });
+        persist();
+      }
+      return new Map(prices);
+    })().finally(() => pending.delete(key));
+    job = { task, listeners };
+    pending.set(key, job);
+  }
+  if (onPartial) job.listeners.add(onPartial);
+  return job.task;
 }
 
 // Starts loading a month in the background. Not used on hover or on route choice any more:
-// each month costs a SerpApi search, so prices load only when a calendar or the date strip shows them.
+// each month costs paid searches, so prices load only when a calendar or the date strip shows them.
 export function prefetchMonth(query, month) {
   if (!query || !/^\d{4}-\d{2}$/.test(month || '')) return;
   monthPrices(query, month).catch(() => {});
@@ -182,9 +215,10 @@ export function mountCalendar(root, opts) {
     if (!shown()) return;
     legend('loading');
     const adults = adultsOf(opts.priceQuery);
-    try {
-      const [prices, pricing] = await Promise.all([monthPrices(opts.priceQuery, isoOf(current).slice(0, 7)), loadPricing()]);
-      if (current !== month) return;
+    let pricing = null;
+    // Paints the prices known so far; days still loading keep their dot until the end (done).
+    const paint = (prices, done) => {
+      if (current !== month || !pricing) return;
       const totalOf = date => {
         const amount = prices.get(date)?.amount;
         return Number.isFinite(amount) ? amount * adults : undefined;
@@ -196,15 +230,24 @@ export function mountCalendar(root, opts) {
         const amount = totalOf(button.dataset.date);
         const slot = button.querySelector('.day-price');
         if (!Number.isFinite(amount)) {
-          slot.textContent = '';
+          if (done) slot.textContent = '';
           continue;
         }
         slot.textContent = shortPrice(amount, pricing);
-        button.classList.toggle('cheap', amount <= threshold);
+        button.classList.toggle('cheap', done && amount <= threshold);
         button.setAttribute('aria-label', `${button.dataset.label} · desde ${fullPrice(amount, pricing)}`);
       }
+      if (!done) return;
       if (!amounts.length) legend('empty');
       else legend('ready', ` · desde <b class="legend-min">${esc(fullPrice(amounts[0], pricing))}</b>`);
+    };
+    try {
+      const prices = monthPrices(opts.priceQuery, isoOf(current).slice(0, 7), partial => paint(partial, false));
+      prices.catch(() => {});
+      pricing = await loadPricing();
+      const all = await prices;
+      if (current !== month) return;
+      paint(all, true);
     } catch {
       if (current !== month) return;
       enabled.forEach(button => { button.querySelector('.day-price').textContent = ''; });

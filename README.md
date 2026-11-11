@@ -30,7 +30,8 @@ As páginas abrem sem `.html` (`/resultados`, `/compra`, `/minhas-viagens`,
 
 1. Vercel → **Add New → Project** → importar `Akejr/dotviagens`. Manter as
    opções de build (vêm do `vercel.json`).
-2. **Settings → Environment Variables** (Production): `SERPAPI_KEY`,
+2. **Settings → Environment Variables** (Production): `SEARCHAPI_KEY` (pesquisa
+   de voos; `FLIGHTS_PROVIDER=serpapi` volta à SerpApi), `SERPAPI_KEY` (reserva),
    `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `NSANGU_API_KEY`, `WIPAY_BASE_URL`,
    `WIPAY_CLIENT_ID`, `WIPAY_CLIENT_SECRET`, `WIPAY_WEBHOOK_SECRET`,
    `VERO_API_KEY`, `VERO_ORG_ID`, `AUTH_SECRET`, `OFFER_SECRET`, `CRON_SECRET`,

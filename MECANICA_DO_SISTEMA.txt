@@ -1,5 +1,9 @@
 DOT VIAGENS — DOCUMENTAÇÃO DO SISTEMA
-Revisão: 10 de Novembro de 2026 (7.ª) — avisos de preço por SMS nos
+Revisão: 11 de Novembro de 2026 (8.ª) — a pesquisa de voos e o calendário
+passam a usar a SearchApi (plano Developer, 10.000 pesquisas por mês); a
+SerpApi fica de reserva (secção 5A). O calendário de ida e volta preenche-se
+por partes, à medida que chegam.
+7.ª revisão (10/11/2026): avisos de preço por SMS nos
 resultados (secção 9A) e nova secção Avisos no painel; tocar num cartão de
 voo abre e fecha o percurso; taxa DOT alterável no painel (Câmbio e preço);
 menos pesquisas pagas: os cartões de datas mostram o preço do calendário e só
@@ -30,7 +34,8 @@ fim dos textos de pré-lançamento.
 1.ª revisão: compra em kwanzas, acesso por SMS, pagamentos, facturação e painel.
 
 1. PRODUTO E LIMITES
-Pesquisa real via SerpApi Google Flights. O fornecedor devolve preços em BRL;
+Pesquisa real do Google Flights via SearchApi (antes SerpApi, que fica de
+reserva; secção 5A). O fornecedor devolve preços em BRL;
 o site mostra kwanzas: preço final = preço em BRL x câmbio do dia (arredondado
 para cima ao kwanza) + taxa DOT sobre esse valor (11% por defeito, também
 arredondada para cima). O cliente vê só o preço final, sem a taxa à parte e
@@ -169,10 +174,49 @@ bookingToken é guardado na reserva para futura consulta de booking_options;
 a integração actual NÃO chama booking_options.
 Documentação: https://serpapi.com/google-flights-api
 
+5A. FORNECEDOR DA PESQUISA (SEARCHAPI; SERPAPI DE RESERVA)
+Desde 11/11/2026 a pesquisa de voos e o calendário usam a SearchApi
+(https://www.searchapi.io, engines google_flights e google_flights_calendar):
+mais barata e, no teste lado a lado, trouxe os voos directos da TAAG que a
+SerpApi não trazia. Plano Developer com Enhanced speed: $80 por mês, 10.000
+pesquisas; só contam as respostas com sucesso; limite de 20% do plano por
+hora. Chave em SEARCHAPI_KEY.
+Regra (server/searchapi.mjs): com SEARCHAPI_KEY definida usa-se a SearchApi;
+FLIGHTS_PROVIDER=serpapi volta à SerpApi (SERPAPI_KEY) sem mexer no código.
+As respostas da SearchApi são convertidas para o formato da SerpApi (data e
+hora juntas, calendário em outbound_date/return_date/price), por isso a
+assinatura das ofertas, os registos, as caches partilhadas, a pausa depois de
+um erro de limite (HTTP 429) e os avisos de preço funcionam igual. As caches
+da SearchApi têm chave própria (prefixo searchapi|), separadas das da SerpApi.
+Pedidos: só ida, ida e volta e voltas da ida escolhida (departure_token) como
+na secção 5; stops=any; travel_class=economy; currency BRL; hl e gl pt.
+Calendário (cada pedido conta 1 pesquisa):
+- só ida: 1 pedido por mês (outbound_date_start/end);
+- volta com ida fixa: 1 pedido (ida fixa + return_date_start/end);
+- ida e volta de N dias: a SearchApi aceita no máximo 200 combinações de
+  datas por pedido, por isso o mês vai em 3 partes de ~10 dias (cada parte
+  pede a grelha ida x volta e fica só a diagonal de N dias). O browser pede
+  o mês, o servidor responde só {parts: 3} (sem gastar), e o browser pede as
+  3 partes ao mesmo tempo (part: 0, 1, 2) e mostra cada uma quando chega
+  (price-calendar.js monthPrices com onPartial; faixa de datas dos
+  resultados também). Cada parte fica na cache sozinha. Um mês com uma parte
+  em falta não fica guardado no browser, para se pedir de novo.
+Tempos medidos (velocidade normal): voos 8 a 10 s; calendário só ida 8 a
+13 s; ida e volta 16 a 25 s até à última parte. A Enhanced speed promete o
+dobro da velocidade. Partir o mês em pedidos mais pequenos não acelerou e
+gastava 4 vezes mais.
+Os preços não são iguais aos da SerpApi para o mesmo voo (no teste, a SerpApi
+deu até 8% mais, mesmo com deep_search): ambas lêem o Google Flights de
+maneiras diferentes. O preço final é sempre confirmado pela equipa ao emitir.
+Painel: o cartão da cota e os textos mostram o fornecedor em uso; a cota lê
+GET /api/v1/me da SearchApi (grátis): plano do mês + remaining_credits.
+
 6. ECONOMIA DE REQUISIÇÕES
-Cada pesquisa de voos e cada mês do calendário é uma pesquisa paga da SerpApi
-(as repetidas dentro de 1 hora são grátis no próprio fornecedor; as "sem
-voos" também contam). Regras actuais:
+Cada pesquisa de voos e cada mês do calendário é uma pesquisa paga no
+fornecedor (SearchApi; o mês de ida e volta são 3, secção 5A). Na SerpApi,
+de reserva, as repetidas dentro de 1 hora são grátis e as "sem voos" contam.
+As regras abaixo valem para os dois fornecedores (onde se lê SerpApi, ler o
+fornecedor em uso):
 - Autocomplete usa ficheiro estático local. Nenhuma consulta SerpApi ao digitar.
 - Só o dia escolhido é pesquisado (também na etapa da volta). Os cinco cartões
   de datas mostram o preço do calendário de cada dia ("indicativo ≈ …", um
@@ -645,7 +689,9 @@ public/minhas-viagens.html, minhas-viagens.js, trips.css: área do cliente.
 public/admin.html, admin.js, admin.css: painel (motor de tempo real em admin.js).
 server/router.mjs: rotas /api e registo das pesquisas.
 server/http.mjs, crypto.mjs, phone.mjs: utilitários.
-server/flights.mjs, airport-codes.mjs: pesquisa, validação e cache SerpApi.
+server/flights.mjs, airport-codes.mjs: pesquisa, validação e cache.
+server/searchapi.mjs: SearchApi (pedidos, conversão para o formato SerpApi,
+partes do calendário de ida e volta).
 server/calendar.mjs: preços por dia (SerpApi Google Flights Calendar).
 server/provider.mjs: cache partilhado das pesquisas, pausa depois de um erro
 de limite e cota da conta SerpApi (painel).
@@ -679,7 +725,8 @@ corepack pnpm dev
 node --test tests/*.test.mjs
 corepack pnpm build
 Variáveis do Worker (em desenvolvimento no ficheiro .dev.vars, fora do Git):
-SERPAPI_KEY · SUPABASE_URL · SUPABASE_SECRET_KEY · NSANGU_API_KEY ·
+SEARCHAPI_KEY · SERPAPI_KEY (reserva) · FLIGHTS_PROVIDER (opcional: serpapi
+para voltar à SerpApi) · SUPABASE_URL · SUPABASE_SECRET_KEY · NSANGU_API_KEY ·
 WIPAY_BASE_URL · WIPAY_CLIENT_ID · WIPAY_CLIENT_SECRET · WIPAY_WEBHOOK_SECRET ·
 VERO_API_KEY · VERO_ORG_ID · AUTH_SECRET · OFFER_SECRET · CRON_SECRET ·
 ADMIN_PHONES · PUBLIC_BASE_URL · OTP_HOURLY_LIMIT (opcional) ·

@@ -51,9 +51,10 @@ function updateURL(){const p=new URLSearchParams(Object.fromEntries(Object.entri
 const calendarState=new Map();
 function calendarQuery(){const base={origin:query.origin,destination:query.destination,passengers:query.passengers};if(!query.returnDate)return {...base,type:'oneway'};if(stage==='return')return {...base,type:'return',fixedOutbound:selected};return {...base,type:'return',tripDays:standardTripDays(Math.min(60,Math.max(1,tripLength())))}}
 const calendarKey=(cq,month)=>JSON.stringify([cq.type,cq.fixedOutbound||null,cq.tripDays||null,month]);
-function loadCalendar(){if(stage==='summary'||!windowStart)return;const cq=calendarQuery();for(const month of new Set(dates().map(d=>d.slice(0,7)))){const k=calendarKey(cq,month);if(calendarState.has(k))continue;calendarState.set(k,'loading');monthPrices(cq,month).then(map=>calendarState.set(k,map),()=>calendarState.set(k,'error')).finally(()=>{if(stage!=='summary')renderDates()})}}
+function loadCalendar(){if(stage==='summary'||!windowStart)return;const cq=calendarQuery();for(const month of new Set(dates().map(d=>d.slice(0,7)))){const k=calendarKey(cq,month);if(calendarState.has(k))continue;calendarState.set(k,'loading');monthPrices(cq,month,partial=>{const now=calendarState.get(k);if(now!=='loading'&&!now?.loading)return;partial.loading=true;calendarState.set(k,partial);if(stage!=='summary')renderDates()}).then(map=>calendarState.set(k,map),()=>calendarState.set(k,'error')).finally(()=>{if(stage!=='summary')renderDates()})}}
 // Total for every adult (number), 'loading', 'error' or null when the calendar has no price for the day.
-function calendarPrice(d){const cq=calendarQuery(),state=calendarState.get(calendarKey(cq,d.slice(0,7)));if(!(state instanceof Map))return state||null;const amount=state.get(d)?.amount;return Number.isFinite(amount)?amount*adultsOf(cq):null}
+// A month that arrives in parts is a Map marked .loading until the last part: its missing days still load.
+function calendarPrice(d){const cq=calendarQuery(),state=calendarState.get(calendarKey(cq,d.slice(0,7)));if(!(state instanceof Map))return state||null;const amount=state.get(d)?.amount;return Number.isFinite(amount)?amount*adultsOf(cq):(state.loading?'loading':null)}
 
 function renderHeader(){
  $('#route-title').innerHTML=`${esc(names[query.origin]||query.origin)} <span>→</span> ${esc(names[query.destination]||query.destination)}`;

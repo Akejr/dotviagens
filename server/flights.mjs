@@ -1,5 +1,6 @@
 import {airports} from './airport-codes.mjs';
 import {safeLogo,signResult,signedQuery} from './offers.mjs';
+import {searchApiOn,searchApiFlightsUrl,adaptFlights} from './searchapi.mjs';
 const memo=new Map(), pending=new Map();
 // Memory cache of this instance (10 min) inside the 25 min window of the shared cache (hooks.cacheGet):
 // a result is never reused after 25 min, so its offers can still be bought (30 min limit).
@@ -25,7 +26,8 @@ export function normalize(data){
  return rows.filter(o=>Array.isArray(o.flights)&&o.flights.length&&Number.isFinite(o.price)).map((o,i)=>({id:String(i),departureToken:o.departure_token||null,bookingToken:o.booking_token||null,logo:safeLogo(o.airline_logo||o.flights[0]?.airline_logo),airline:[...new Set(o.flights.map(f=>f.airline).filter(Boolean))].join(' / '),segments:o.flights.map(f=>({airline:f.airline||'',logo:safeLogo(f.airline_logo),number:f.flight_number||'',from:f.departure_airport?.id||'',to:f.arrival_airport?.id||'',departure:f.departure_airport?.time||'',arrival:f.arrival_airport?.time||'',duration:f.duration||0})),layovers:(o.layovers||[]).map(l=>({airport:l.id||'',name:l.name||'',duration:l.duration||0,overnight:!!l.overnight})),duration:o.total_duration||0,amount:o.price,currency:'BRL',stops:o.flights.length-1,cabin:'Económica'})).filter(o=>{const k=JSON.stringify([o.segments,o.amount]);if(seen.has(k))return false;seen.add(k);return true});
 }
 // SerpApi answers "Success" plus an error string when Google has no flights: that is an empty result, not a failure.
-export const noResults=d=>typeof d?.error==='string'&&/hasn.t returned any results/i.test(d.error);
+// SerpApi: "hasn't returned any results"; SearchApi: "didn't return any results".
+export const noResults=d=>typeof d?.error==='string'&&/(hasn.t returned|didn.t return) any results/i.test(d.error);
 // sid: browser session; jid: one results-page search (all its dates and returns share it).
 const safeId=v=>typeof v==='string'&&/^[A-Za-z0-9-]{8,64}$/.test(v)?v:null;
 const metaOf=b=>({kind:typeof b?.kind==='string'?b.kind.slice(0,24):null,sid:safeId(b?.sid),jid:safeId(b?.jid)});
@@ -33,9 +35,11 @@ export async function handleSearch(request,env,fetcher=fetch,hooks={}){
  if(request.method!=='POST')return json({error:'Método não permitido.'},405);
  const origin=request.headers.get('origin');if(origin&&origin!==new URL(request.url).origin)return json({error:'Pedido não permitido.'},403);
  let q,meta;try{const body=await request.text();if(body.length>16000)return json({error:'Pedido demasiado grande.'},413);const raw=JSON.parse(body);q=validate(raw);meta=metaOf(raw)}catch(e){return json({error:e instanceof SyntaxError?'Pedido inválido.':e.message},400)}
- if(!env.SERPAPI_KEY)return json({error:'A pesquisa ainda não está configurada.'},503);
+ // SearchApi when SEARCHAPI_KEY is set (see searchapi.mjs), otherwise SerpApi. Its cache keys are apart.
+ const viaSearchApi=searchApiOn(env);
+ if(!viaSearchApi&&!env.SERPAPI_KEY)return json({error:'A pesquisa ainda não está configurada.'},503);
  const started=Date.now();const report=(result,status,errorCode=null)=>{try{hooks.onSearch?.({q,meta,status,errorCode,cached:!!result?.cached,offers:result?.offers||[],durationMs:Date.now()-started})}catch{}};
- const key=JSON.stringify(q);const saved=memo.get(key);if(saved&&saved.until>Date.now()){const result=reused(saved.data);report(result,result.offers.length?'ok':'empty');return json(result)}
+ const key=(viaSearchApi?'searchapi|':'')+JSON.stringify(q);const saved=memo.get(key);if(saved&&saved.until>Date.now()){const result=reused(saved.data);report(result,result.offers.length?'ok':'empty');return json(result)}
  if(pending.has(key))return pending.get(key).then(r=>r.clone());
  const task=(async()=>{try{
  // Shared cache: the same search made in the last 25 minutes by any visitor, on any server instance.
@@ -44,9 +48,9 @@ export async function handleSearch(request,env,fetcher=fetch,hooks={}){
  // After a quota error SerpApi is paused for a few minutes on every instance: no call is made.
  const paused=Number(await Promise.resolve(hooks.pausedUntil?.()).catch(()=>0))||0;
  if(paused>Date.now())return json({error:hooks.pauseMessage?.(paused)||PAUSED,code:'PROVIDER_PAUSED',retryAt:new Date(paused).toISOString()},503);
- const url=new URL('https://serpapi.com/search.json');url.search=new URLSearchParams({engine:'google_flights',api_key:env.SERPAPI_KEY,departure_id:q.origin,arrival_id:q.destination,outbound_date:q.departureDate,...(q.returnDate?{return_date:q.returnDate}:{}),type:q.returnDate?'1':'2',...(q.departureToken?{departure_token:q.departureToken}:{}),adults:String(q.passengers),travel_class:'1',stops:String(q.stops),currency:'BRL',hl:'pt',gl:'pt'}).toString();
- const response=await fetcher(url,{signal:AbortSignal.timeout(45000)});const data=await response.json();
- if(response.status===401||response.status===403){report(null,'error','PROVIDER_AUTH');return json({error:'A SerpApi recusou a chave de acesso. Confirma a chave no painel da SerpApi.',code:'PROVIDER_AUTH'},502)}
+ let url;if(viaSearchApi)url=searchApiFlightsUrl(env,q);else{url=new URL('https://serpapi.com/search.json');url.search=new URLSearchParams({engine:'google_flights',api_key:env.SERPAPI_KEY,departure_id:q.origin,arrival_id:q.destination,outbound_date:q.departureDate,...(q.returnDate?{return_date:q.returnDate}:{}),type:q.returnDate?'1':'2',...(q.departureToken?{departure_token:q.departureToken}:{}),adults:String(q.passengers),travel_class:'1',stops:String(q.stops),currency:'BRL',hl:'pt',gl:'pt'}).toString()}
+ const response=await fetcher(url,{signal:AbortSignal.timeout(45000)});const raw=await response.json();const data=viaSearchApi?adaptFlights(raw):raw;
+ if(response.status===401||response.status===403){report(null,'error','PROVIDER_AUTH');return json({error:`A ${viaSearchApi?'SearchApi':'SerpApi'} recusou a chave de acesso. Confirma a chave no painel do fornecedor.`,code:'PROVIDER_AUTH'},502)}
  if(response.status===429){const until=hooks.onLimit?.();report(null,'error','PROVIDER_LIMIT');return json({error:until&&hooks.pauseMessage?hooks.pauseMessage(until):PAUSED,code:'PROVIDER_LIMIT'},429)}
  if(!response.ok||(data.error&&!noResults(data))){report(null,'error','PROVIDER_ERROR');return json({error:'O fornecedor não conseguiu concluir esta pesquisa. Tenta outras datas ou tenta novamente.',code:'PROVIDER_ERROR'},502)}
  let result={demo:false,offers:normalize(data),currency:'BRL',passengers:q.passengers,roundTrip:!!q.returnDate,searchedAt:new Date().toISOString(),cached:false};

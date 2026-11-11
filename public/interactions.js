@@ -50,5 +50,5 @@ const media=matchMedia('(prefers-reduced-motion: reduce)');if(!media.matches){co
 const header=$('.header');let ticking=false;window.addEventListener('scroll',()=>{if(!ticking){requestAnimationFrame(()=>{header.classList.toggle('scrolled',scrollY>50);ticking=false});ticking=true}},{passive:true});
 $('#search-form').addEventListener('submit',()=>close());
 // Calendar prices are no longer loaded in advance (route chosen, hover or focus): each month is a
-// paid SerpApi search, so they load when the customer opens the calendar.
+// paid search at the flight provider, so they load when the customer opens the calendar.
 {const wanted=(new URLSearchParams(location.search).get('destino')||'').toUpperCase();if(/^[A-Z]{3}$/.test(wanted))chooseDestination(wanted)}

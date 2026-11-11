@@ -72,7 +72,7 @@ const AUDIT = {
 // Price alerts: label and badge colour of each state.
 const ALERT_STATUS = { active: ['Activo', 'paid'], done: ['Concluído', 'ticketed'], expired: ['Expirado', 'expired'], cancelled: ['Desactivado', 'cancelled'] };
 const ALERT_FILTERS = [['', 'Todos'], ['active', 'Activos'], ['notified', 'Com SMS enviado'], ['done', 'Concluídos'], ['expired', 'Expirados'], ['cancelled', 'Desactivados']];
-// SerpApi monthly quota: the panel warns from 80% used.
+// Monthly quota of the flight provider (SearchApi or SerpApi): the panel warns from 80% used.
 const SERP_WARN = 0.8;
 // DOT fee limits accepted by the server (MAX_MARKUP_BP in server/rates.mjs).
 const MAX_MARKUP_PERCENT = 50;
@@ -81,6 +81,8 @@ const MONTHS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', '
 let me = null;
 let rate = null;
 let markupBp = 1100;
+// Flight provider in use (SearchApi, or SerpApi when FLIGHTS_PROVIDER=serpapi), read from the overview.
+let searchProvider = 'SearchApi';
 let cities = {};
 let listening = false;
 let screenToken = 0;
@@ -232,7 +234,7 @@ function announce(previous, state) {
   }
   const pause = pauseEnd(state);
   if (pause && pause !== pauseEnd(previous)) {
-    toast(`Pesquisas de voos em pausa até ${hourLuanda.format(new Date(pause))}: a SerpApi recusou pedidos por limite de uso.`, 'error', { href: '#overview', label: 'Ver' });
+    toast(`Pesquisas de voos em pausa até ${hourLuanda.format(new Date(pause))}: a ${searchProvider} recusou pedidos por limite de uso.`, 'error', { href: '#overview', label: 'Ver' });
   }
   const alerts = value => Number(String(value ?? '').split(':')[0]) || 0;
   if (alerts(state.alerts) > alerts(previous.alerts)) {
@@ -240,7 +242,7 @@ function announce(previous, state) {
   }
 }
 
-// End of the SerpApi pause (ms) from the live state, or 0 when there is none.
+// End of the flight provider pause (ms) from the live state, or 0 when there is none.
 function pauseEnd(state) {
   const until = Date.parse(state?.provider_pause?.until || '') || 0;
   return until > Date.now() ? until : 0;
@@ -463,7 +465,7 @@ function integrationList(state, sms) {
   const row = (ok, label, sub) => `<div><span><strong>${esc(label)}</strong><small>${esc(sub)}</small></span><span class="${ok ? 'ok-dot' : 'no-dot'}">${ok ? 'Activo' : 'Por configurar'}</span></div>`;
   return `<div class="status-list">
     ${row(state.supabase, 'Base de dados', 'Supabase')}
-    ${row(state.search, 'Pesquisa de voos', 'SerpApi · Google Flights e calendário de preços')}
+    ${row(state.search, 'Pesquisa de voos', `${state.searchProvider || searchProvider} · Google Flights e calendário de preços`)}
     ${row(state.sms, 'SMS', sms ? `Nsangu · ${fmtNumber(sms.availableSms)} SMS disponíveis` : 'Nsangu')}
     ${row(state.payments, 'Pagamentos', 'Wiza · Multicaixa Express e referência')}
     ${row(state.invoices, 'Facturação', state.invoicesSandbox ? 'Vero · chave de teste (não chega à AGT)' : 'Vero · factura certificada AGT')}
@@ -482,7 +484,7 @@ function rateCard(current, today) {
     ${current.effectiveDate !== today ? `<div class="notice">${icon('alert', 18)}<div>O câmbio não foi actualizado hoje. Os preços continuam a usar este valor.</div></div>` : ''}</div>`;
 }
 
-// SerpApi plan and usage (read by the server with the Account API, which costs no search).
+// Plan and usage of the flight provider (read by the server with its free account call).
 const serpUsed = serp => (serp?.monthly ? Math.min(1, Math.max(0, (Number(serp.used) || 0) / serp.monthly)) : null);
 const serpLevel = serp => {
   const used = serpUsed(serp);
@@ -490,8 +492,8 @@ const serpLevel = serp => {
 };
 
 function serpCard(serp) {
-  const head = `<div class="card-head"><div><h2>${hIcon('globe')} Cota da SerpApi</h2><p>${serp ? `${esc(serp.plan || 'Plano')}${serp.monthly ? ` · ${fmtNumber(serp.monthly)} pesquisas por mês` : ''}` : 'Pesquisa de voos e calendário de preços'}</p></div><a class="btn-sm" href="https://serpapi.com/dashboard" target="_blank" rel="noopener">${icon('external', 14)} Conta</a></div>`;
-  if (!serp) return `<div class="admin-card serp-card">${head}<div class="notice info">${icon('info', 18)}<div>Não foi possível ler o plano e o uso da SerpApi agora. A pesquisa de voos não depende disto.</div></div></div>`;
+  const head = `<div class="card-head"><div><h2>${hIcon('globe')} Cota da ${esc(serp?.provider || searchProvider)}</h2><p>${serp ? `${esc(serp.plan || serp.provider || 'Plano')}${serp.monthly ? ` · ${fmtNumber(serp.monthly)} pesquisas por mês` : ''}` : 'Pesquisa de voos e calendário de preços'}</p></div><a class="btn-sm" href="${(serp?.provider || searchProvider) === 'SerpApi' ? 'https://serpapi.com/dashboard' : 'https://www.searchapi.io/'}" target="_blank" rel="noopener">${icon('external', 14)} Conta</a></div>`;
+  if (!serp) return `<div class="admin-card serp-card">${head}<div class="notice info">${icon('info', 18)}<div>Não foi possível ler o plano e o uso da ${esc(searchProvider)} agora. A pesquisa de voos não depende disto.</div></div></div>`;
   const used = serpUsed(serp);
   const level = serpLevel(serp);
   const percent = used === null ? '—' : `${Math.round(used * 100)}%`;
@@ -508,10 +510,10 @@ function serpCard(serp) {
     ${level ? `<div class="notice ${level === 'full' ? 'error' : ''}" style="margin-top:14px">${icon('alert', 18)}<div>${warning}</div></div>` : ''}</div>`;
 }
 
-// Searches paused after a SerpApi quota error (HTTP 429): customers see a notice meanwhile.
+// Searches paused after a provider quota error (HTTP 429): customers see a notice meanwhile.
 function pauseNotice(until) {
   if (!until) return '';
-  return `<div class="notice error pause-notice">${icon('alert', 18)}<div><strong>Pesquisas de voos em pausa até ${esc(hourLuanda.format(new Date(until)))}.</strong> A SerpApi recusou pedidos por limite de uso. Entretanto os clientes vêem um aviso para tentarem mais tarde ou falarem no WhatsApp. Se o plano já foi renovado, retoma agora.
+  return `<div class="notice error pause-notice">${icon('alert', 18)}<div><strong>Pesquisas de voos em pausa até ${esc(hourLuanda.format(new Date(until)))}.</strong> A ${esc(searchProvider)} recusou pedidos por limite de uso. Entretanto os clientes vêem um aviso para tentarem mais tarde ou falarem no WhatsApp. Se o plano já foi renovado, retoma agora.
     <div class="pause-actions"><button class="btn-sm primary-sm" type="button" data-resume>${icon('refresh', 14)} Retomar agora</button></div></div></div>`;
 }
 
@@ -556,6 +558,7 @@ async function overviewView(params, ctx) {
   if (stale(ctx)) return;
   rate = data.rate;
   markupBp = data.pricing?.markupBp ?? markupBp;
+  searchProvider = data.integrations?.searchProvider || searchProvider;
   const s = data.stats || {};
   const firstName = String(me.name || '').trim().split(/\s+/)[0];
   const quota = serpUsed(data.serp);
@@ -578,7 +581,7 @@ async function overviewView(params, ctx) {
       ${kpi('clock', 'Pagamentos pendentes', fmtNumber(s.pending_payment), 'Express ou referência por pagar', '#bookings?status=pending_payment')}
       ${kpi('alert', 'Para rever', fmtNumber(s.needs_review), 'Pagamentos por confirmar à mão', '#bookings?status=review', s.needs_review ? 'warn' : '')}
       ${kpi('user', 'Clientes', fmtNumber(s.customers_total), plural(s.customers_7d, 'novo em 7 dias', 'novos em 7 dias'), '#customers')}
-      ${kpi('globe', 'Consultas à SerpApi hoje', fmtNumber(s.provider_calls_today), quota === null ? 'Datas escolhidas, voltas e calendário' : `${Math.round(quota * 100)}% da cota do mês usada`, '#searches', serpLevel(data.serp) ? 'warn' : '')}
+      ${kpi('globe', `Consultas à ${searchProvider} hoje`, fmtNumber(s.provider_calls_today), quota === null ? 'Datas escolhidas, voltas e calendário' : `${Math.round(quota * 100)}% da cota do mês usada`, '#searches', serpLevel(data.serp) ? 'warn' : '')}
     </div>
     <div class="admin-grid"><div><div class="admin-card"><div class="card-head"><div><h2>${hIcon('activity')} Pesquisas agora</h2><p>As pesquisas mais recentes, uma linha por cliente.</p></div><a class="btn-sm" href="#searches">Ver todas ${icon('arrowRight', 14)}</a></div>
         ${activityList(recent.journeys || [])}</div>
@@ -622,7 +625,7 @@ async function ratesView(params, ctx) {
           <div class="form-actions"><span class="muted">De 0% a ${MAX_MARKUP_PERCENT}%. Cada alteração fica na auditoria.</span><button class="primary" type="submit">${icon('check', 16)} Guardar taxa</button></div></form></div></div>
     <div>${rateCard(current ? { rate: current.rate, effectiveDate: current.effective_date } : null, data.today)}
       <div class="admin-card"><h2>${hIcon('info')} Como se calcula o preço</h2><ol class="formula">
-        <li><b>Voo em reais</b><span>O preço devolvido pela pesquisa (Google Flights, via SerpApi).</span></li>
+        <li><b>Voo em reais</b><span>O preço devolvido pela pesquisa (Google Flights, via ${esc(searchProvider)}).</span></li>
         <li><b>× câmbio do dia</b><span>Arredondado para cima ao kwanza.</span></li>
         <li><b>+ taxa DOT de ${pct(markupBp)}</b><span>Calculada sobre o valor convertido.</span></li>
         <li><b>= preço ao cliente</b><span>Um só valor, sem a taxa à parte. É o que a Wiza cobra e o que o Vero factura.</span></li></ol></div></div></div>
@@ -756,7 +759,7 @@ const callRow = row => `<tr><td class="mono">${esc(timeOf(row.created_at))}</td>
   <td>${esc(KIND[row.kind] || '—')}${row.has_token ? '<small>voltas da ida escolhida</small>' : ''}</td>
   <td>${esc(shortDay(row.departure_date))}${row.return_date ? ` — ${esc(shortDay(row.return_date))}` : ''}</td>
   <td>${row.status === 'ok' ? `${plural(row.offers_count, 'opção', 'opções')}<small>desde ${esc(priceText(row.min_price_brl))}</small>` : row.status === 'empty' ? 'Sem voos' : `<span class="no-dot">Erro</span><small>${esc(row.error_code || '')}</small>`}</td>
-  <td>${row.cached ? '<span class="tag">Cache</span>' : '<span class="tag serp">SerpApi</span>'}</td>
+  <td>${row.cached ? '<span class="tag">Cache</span>' : '<span class="tag serp">Pesquisa paga</span>'}</td>
   <td class="num">${row.duration_ms != null ? `${fmtNumber(row.duration_ms)} ms` : '—'}</td></tr>`;
 
 async function openCalls(article) {
@@ -800,9 +803,9 @@ async function searchesView(params, ctx) {
   view().innerHTML = `<div class="kpi-grid cols-5">
       ${kpi('activity', 'Pesquisas · 7 dias', fmtNumber(stats.journeys), 'Cada pesquisa conta uma vez')}
       ${kpi('users', 'Visitantes únicos', fmtNumber(stats.visitors), 'Sem guardar o IP')}
-      ${kpi('globe', 'Consultas à SerpApi', fmtNumber(stats.provider_calls), `${fmtNumber(stats.calendar_calls)} do calendário`)}
+      ${kpi('globe', 'Pesquisas pagas', fmtNumber(stats.provider_calls), `${fmtNumber(stats.calendar_calls)} do calendário`)}
       ${kpi('search', 'Sem voos', fmtNumber(stats.empty_journeys), 'Nenhuma oferta encontrada')}
-      ${kpi('alert', 'Erros do fornecedor', fmtNumber(stats.errors), 'SerpApi em baixo ou sem quota', '', stats.errors ? 'warn' : '')}
+      ${kpi('alert', 'Erros do fornecedor', fmtNumber(stats.errors), 'Fornecedor em baixo ou sem créditos', '', stats.errors ? 'warn' : '')}
     </div>
     <div class="admin-card"><div class="card-head"><div><h2>${hIcon('activity')} Feed ao vivo</h2><p>Cada linha é uma pesquisa de um cliente, com as datas de ida e de volta que comparou. Toca numa linha para ver cada consulta. Guardadas 7 dias.</p></div><span class="feed-count">${plural(journeys.length, 'pesquisa', 'pesquisas')}</span></div>
       <div class="journey-list" id="feed">${journeys.length ? journeys.map((j, index) => journeyRow(j, index, previous)).join('') : emptyState('search', 'Ainda não há pesquisas registadas.', 'Abre o site noutra janela e faz uma pesquisa: aparece aqui em segundos.')}</div></div>
@@ -1153,7 +1156,7 @@ async function alertsView(params, ctx) {
     <div class="chips spaced">${ALERT_FILTERS.map(([key, label]) => `<a class="chip ${status === key ? 'selected' : ''}" href="#alerts${key ? `?status=${key}` : ''}">${esc(label)}</a>`).join('')}</div>
     ${table('<th>Cliente</th><th>Viagem</th><th>Datas</th><th class="num">Preço visto</th><th class="num">Último preço</th><th>SMS</th><th>Estado</th><th></th>', data.rows.map(row => alertRow(row, today)).join(''), status ? 'Nenhum aviso neste estado.' : 'Ainda não há avisos de preço.')}
     ${pager(data.total, offset, limit, `alerts${status ? `?status=${status}` : ''}`)}
-    <div class="admin-card"><h2>${hIcon('trendDown')} Como funcionam</h2><p>Nos resultados, o cliente indica o nome e confirma o telemóvel com um código por SMS (fica nos Utilizadores). O preço é seguido com as pesquisas que outros visitantes fazem para a mesma viagem (rota, datas e adultos), sem consultas extra à SerpApi.</p>
+    <div class="admin-card"><h2>${hIcon('trendDown')} Como funcionam</h2><p>Nos resultados, o cliente indica o nome e confirma o telemóvel com um código por SMS (fica nos Utilizadores). O preço é seguido com as pesquisas que outros visitantes fazem para a mesma viagem (rota, datas e adultos), sem pesquisas extra ao fornecedor.</p>
       <ol class="formula">
         <li><b>1.º SMS</b><span>Quando o preço baixa mais de ${formatKz(rules.firstDropKz ?? 50000)} face ao preço que o cliente viu.</span></li>
         <li><b>2.º SMS, o último</b><span>Quando baixa pelo menos mais ${formatKz(rules.secondDropKz ?? 100000)} face ao preço do 1.º SMS.</span></li>
@@ -1233,11 +1236,12 @@ async function systemView(params, ctx) {
   if (stale(ctx)) return;
   markupBp = data.pricing?.markupBp ?? markupBp;
   const env = data.integrations;
+  searchProvider = env?.searchProvider || searchProvider;
   const row = (ok, name, variables, note) => `<tr><td><strong>${esc(name)}</strong><small>${esc(note)}</small></td><td class="mono">${esc(variables)}</td><td><span class="${ok ? 'ok-dot' : 'no-dot'}">${ok ? 'Configurado' : 'Em falta'}</span></td></tr>`;
   view().innerHTML = `<div class="admin-grid"><div class="admin-card"><h2>${hIcon('settings')} Configuração do Worker</h2><p>Os segredos vivem só no ambiente do servidor (em desenvolvimento, no ficheiro .dev.vars). Este painel nunca os mostra.</p>
       ${table('<th>Serviço</th><th>Variáveis</th><th>Estado</th>', [
         row(env.supabase, 'Supabase', 'SUPABASE_URL, SUPABASE_SECRET_KEY', 'Base de dados de clientes, compras e pesquisas'),
-        row(env.search, 'SerpApi', 'SERPAPI_KEY', 'Pesquisa de voos e calendário de preços (Google Flights)'),
+        row(env.search, env.searchProvider || 'SerpApi', env.searchProvider === 'SearchApi' ? 'SEARCHAPI_KEY' : 'SERPAPI_KEY', env.searchProvider === 'SearchApi' ? 'Pesquisa de voos e calendário de preços (Google Flights). FLIGHTS_PROVIDER=serpapi volta à SerpApi' : 'Pesquisa de voos e calendário de preços (Google Flights)'),
         row(env.sms, 'Nsangu', 'NSANGU_API_KEY', 'SMS de códigos e avisos'),
         row(env.payments, 'Wiza', 'WIPAY_CLIENT_ID, WIPAY_CLIENT_SECRET, WIPAY_WEBHOOK_SECRET', 'Multicaixa Express e referência'),
         row(env.invoices, 'Vero', 'VERO_API_KEY, VERO_ORG_ID', env.invoicesSandbox ? 'Chave de teste: as facturas não chegam à AGT' : 'Factura-recibo certificada'),

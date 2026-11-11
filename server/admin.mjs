@@ -5,7 +5,8 @@ import { HttpError, json, readJson, assertSameOrigin, cleanText, isoDate } from 
 import { db, hasSupabase, searchTerm } from './supabase.mjs';
 import { requireAdmin, forgetSessionsOf, adminPhones } from './auth.mjs';
 import { currentRate, currentMarkup, forgetRate, luandaToday, validMarkup, MAX_MARKUP_BP } from './rates.mjs';
-import { serpAccount, pausedUntil, resumeProvider } from './provider.mjs';
+import { providerAccount, pausedUntil, resumeProvider } from './provider.mjs';
+import { searchApiOn, providerName } from './searchapi.mjs';
 import { hasSms, smsBalance, smsStatus, smsText } from './sms.mjs';
 import { hasWiza } from './wiza.mjs';
 import { hasVero, isVeroSandbox } from './vero.mjs';
@@ -36,7 +37,8 @@ async function audit(store, session, action, target, details = null) {
 
 const integrations = env => ({
   supabase: hasSupabase(env),
-  search: Boolean(env.SERPAPI_KEY),
+  search: searchApiOn(env) || Boolean(env.SERPAPI_KEY),
+  searchProvider: providerName(env),
   sms: hasSms(env),
   payments: hasWiza(env),
   invoices: hasVero(env),
@@ -77,7 +79,7 @@ export async function overview(request, env, ctx, deps) {
     currentRate(env, deps, { fresh: true }).catch(() => null),
     cachedBalance(env, deps),
     currentMarkup(env, deps, { fresh: true }),
-    serpAccount(env, deps),
+    providerAccount(env, deps),
     pausedUntil(env, deps).catch(() => 0),
   ]);
   return json({
