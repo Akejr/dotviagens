@@ -3,7 +3,7 @@
 // are converted to the SerpApi format that the rest of the server reads, so logs, shared caches,
 // the pause after a quota error and the price alerts work the same with both providers.
 
-import { placeId } from './places.mjs';
+import { placeId, calendarId, severalAirports, airportsPerSide } from './places.mjs';
 
 const BASE = 'https://www.searchapi.io/api/v1/search';
 const DAY_MS = 86400000;
@@ -11,7 +11,14 @@ const DAY_MS = 86400000;
 // parallel were not faster (round trip in 7 blocks: 17.7 s, against 16-25 s in 3), only dearer.
 // Round trip: at most 200 departure x return combinations per request, so 3 blocks of ~11 days.
 const ROUND_TRIP_BLOCK_DAYS = 14;
+// A country (several airports): blocks of up to 5 days (25 combinations, ~24 s). 10 days took 65 s
+// with Lisboa, Porto e Faro (11/11/2026), more than the 60 s a request may last on Vercel.
+const SEVERAL_AIRPORTS_BLOCK_DAYS = 5;
 const ONE_WAY_BLOCK_DAYS = 200;
+// Each calendar request may take up to 50 s (the function may run 60 s; the browser waits 58 s).
+// With 30 s, 116 of 430 requests failed on 11/11/2026: most answered between 10 and 30 s.
+export const CALENDAR_TIMEOUT_MS = 50000;
+const roundTripBlockDays = q => (severalAirports(q) ? SEVERAL_AIRPORTS_BLOCK_DAYS : ROUND_TRIP_BLOCK_DAYS);
 
 export const searchApiOn = env => Boolean(env.SEARCHAPI_KEY) && String(env.FLIGHTS_PROVIDER || '').toLowerCase() !== 'serpapi';
 export const providerName = env => (searchApiOn(env) ? 'SearchApi' : 'SerpApi');
@@ -81,15 +88,17 @@ export const adaptFlights = data => (data && typeof data === 'object'
 // they arrive. Null when the month fits one request (one way, fixed departure, a few days left).
 export function calendarParts(q) {
   if (q.type !== 'return' || q.fixedOutbound || q.empty) return null;
-  const list = blocks(q.start, q.end, ROUND_TRIP_BLOCK_DAYS);
+  const list = blocks(q.start, q.end, roundTripBlockDays(q));
   return list.length > 1 ? list : null;
 }
 
 // One month of the calendar as {response, data: {prices: [{outbound_date, return_date, price}]}} (SerpApi format).
-// One way and fixed departure: 1 request. Round trip of N days: 3 blocks of ~11 departure days.
+// One way and fixed departure: 1 request. Round trip of N days: 3 blocks of ~11 departure days
+// (a country: up to 7 blocks of ~5 days).
 export async function searchApiCalendar(env, q, fetcher) {
-  // A whole country goes as its Google location id: the calendar covers all its airports.
-  const common = { engine: 'google_flights_calendar', departure_id: placeId(q.origin), arrival_id: placeId(q.destination), adults: String(q.passengers), stops: 'any' };
+  // A country goes as its main airports separated by commas (places.mjs, calendarId).
+  const take = airportsPerSide(q.origin, q.destination);
+  const common = { engine: 'google_flights_calendar', departure_id: calendarId(q.origin, take), arrival_id: calendarId(q.destination, take), adults: String(q.passengers), stops: 'any' };
   const requests = [];
   if (q.type !== 'return') {
     for (const [from, to] of blocks(q.start, q.end, ONE_WAY_BLOCK_DAYS)) {
@@ -108,7 +117,7 @@ export async function searchApiCalendar(env, q, fetcher) {
       return_date_end: q.end,
     });
   } else {
-    for (const [from, to] of blocks(q.start, q.end, ROUND_TRIP_BLOCK_DAYS)) {
+    for (const [from, to] of blocks(q.start, q.end, roundTripBlockDays(q))) {
       requests.push({
         ...common,
         flight_type: 'round_trip',
@@ -121,10 +130,10 @@ export async function searchApiCalendar(env, q, fetcher) {
       });
     }
   }
-  // SearchApi answers in 1 to 20 s: each part has 30 s (the browser waits 40 s for the month).
+  // SearchApi answers in 5 to 45 s: each part has CALENDAR_TIMEOUT_MS (the browser waits 58 s).
   const answers = await Promise.all(requests.map(async params => {
     try {
-      const response = await fetcher(requestUrl(env, params), { signal: AbortSignal.timeout(30000) });
+      const response = await fetcher(requestUrl(env, params), { signal: AbortSignal.timeout(CALENDAR_TIMEOUT_MS) });
       return { response, data: await response.json().catch(() => null) };
     } catch {
       return { response: { ok: false, status: 504 }, data: null };

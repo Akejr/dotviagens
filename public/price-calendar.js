@@ -81,7 +81,8 @@ const postCalendar = body => fetch('/api/flights/calendar', {
   method: 'POST',
   headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
   body: JSON.stringify(body),
-  signal: AbortSignal.timeout(40000),
+  // The server gives each provider request up to 50 s (server/searchapi.mjs, CALENDAR_TIMEOUT_MS).
+  signal: AbortSignal.timeout(58000),
 }).then(async response => {
   const data = await response.json().catch(() => null);
   if (!response.ok) throw new Error(data?.error || 'Preços indisponíveis.');

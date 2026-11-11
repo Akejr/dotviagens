@@ -2,12 +2,12 @@
 // SerpApi: one provider call per month view; SearchApi round trips: 3 parts. Memoised 30 minutes. Prices stay in BRL:
 // the browser applies the câmbio do dia and the DOT fee, like every other price.
 
-import { isPlace, isCountry, placeId, mainAirports } from './places.mjs';
+import { isPlace, isCountry, mainAirports, calendarId, airportsPerSide } from './places.mjs';
 import { HttpError, json, readJson, assertSameOrigin, isoDate, defer } from './http.mjs';
 import { noResults } from './flights.mjs';
 import { db, hasSupabase } from './supabase.mjs';
 import { pausedUntil, pauseProvider, pauseMessage } from './provider.mjs';
-import { searchApiOn, searchApiCalendar, calendarParts } from './searchapi.mjs';
+import { searchApiOn, searchApiCalendar, calendarParts, CALENDAR_TIMEOUT_MS } from './searchapi.mjs';
 
 const DAY_MS = 86400000;
 const MAX_AHEAD_DAYS = 330;
@@ -106,8 +106,8 @@ async function fetchPrices(env, q, key, fetcher, hooks, onLimit = () => 0) {
   url.search = new URLSearchParams({
     engine: 'google_flights_calendar',
     api_key: env.SERPAPI_KEY,
-    departure_id: placeId(q.origin),
-    arrival_id: placeId(q.destination),
+    departure_id: calendarId(q.origin, airportsPerSide(q.origin, q.destination)),
+    arrival_id: calendarId(q.destination, airportsPerSide(q.origin, q.destination)),
     type: q.type === 'return' ? '1' : '2',
     date_range_start: q.start,
     date_range_end: q.end,
@@ -125,7 +125,7 @@ async function fetchPrices(env, q, key, fetcher, hooks, onLimit = () => 0) {
     if (searchApiOn(env)) {
       ({ response, data } = await searchApiCalendar(env, q, fetcher));
     } else {
-      response = await fetcher(url, { signal: AbortSignal.timeout(30000) });
+      response = await fetcher(url, { signal: AbortSignal.timeout(CALENDAR_TIMEOUT_MS) });
       data = await response.json();
     }
   } catch {
@@ -170,7 +170,12 @@ function shareLater(env, ctx, deps, key, prices) {
   }, 'cache_key'));
 }
 
-const cacheKey = q => [q.origin, q.destination, q.passengers, q.type, q.start, q.end, q.fixedOutbound || '', q.tripDays || ''].join('|');
+// A country is keyed by the airports asked ("NBJ|LIS,OPO,FAO|…"): the months asked with the country's
+// kgmid (empty answers) are not reused, and a new list of main airports asks again.
+const cacheKey = q => {
+  const take = airportsPerSide(q.origin, q.destination);
+  return [calendarId(q.origin, take), calendarId(q.destination, take), q.passengers, q.type, q.start, q.end, q.fixedOutbound || '', q.tripDays || ''].join('|');
+};
 
 export async function handleCalendar(request, env, ctx, deps, hooks = {}) {
   assertSameOrigin(request);
@@ -235,7 +240,8 @@ export async function withRealPrices(env, deps, q, prices) {
   try {
     const range = (column, from, to) => `(${column}.gte.${from},${column}.lte.${to})`;
     // A whole country is searched through its main airports, so those are the rows to read.
-    const place = code => (isCountry(code) && mainAirports(code).length ? `in.(${mainAirports(code).join(',')})` : `eq.${code}`);
+    const take = airportsPerSide(q.origin, q.destination);
+    const place = code => (isCountry(code) && mainAirports(code).length ? `in.(${mainAirports(code).slice(0, take).join(',')})` : `eq.${code}`);
     const rows = await db(env, deps.fetcher).select('search_logs', {
       select: 'departure_date,return_date,passengers,min_price_brl',
       origin: place(q.origin),

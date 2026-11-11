@@ -1,4 +1,4 @@
-import {isPlace,placeId,isCountry,mainAirports} from './places.mjs';
+import {isPlace,placeId,isCountry,mainAirports,airportsPerSide} from './places.mjs';
 import {safeLogo,signResult,signedQuery,signOffer} from './offers.mjs';
 import {searchApiOn,searchApiFlightsUrl,adaptFlights} from './searchapi.mjs';
 const memo=new Map(), pending=new Map();
@@ -39,7 +39,7 @@ const metaOf=b=>({kind:typeof b?.kind==='string'?b.kind.slice(0,24):null,sid:saf
 // airport search it came from (query, searchedAt), re-signed with its new id: checkout and the
 // return of a round trip use that search. Null when the country has no main airports.
 async function searchCountry(request,raw,q,env,fetcher,hooks){
- const both=isCountry(q.origin)&&isCountry(q.destination),take=both?2:3;
+ const take=airportsPerSide(q.origin,q.destination);
  const ends=code=>isCountry(code)?mainAirports(code).slice(0,take):[code];
  const pairs=[];for(const origin of ends(q.origin))for(const destination of ends(q.destination))if(origin!==destination)pairs.push([origin,destination]);
  if(!pairs.length)return null;

@@ -1,8 +1,9 @@
 DOT VIAGENS — DOCUMENTAÇÃO DO SISTEMA
 Revisão: 11 de Novembro de 2026 (10.ª) — a pesquisa por país compara os
 aeroportos principais do país, um a um (a SearchApi devolvia listas curtas
-ou vazias para o país inteiro), e passa a ter preços no calendário
-(secção 3A).
+ou vazias para o país inteiro), e passa a ter preços no calendário, pedidos
+com os aeroportos principais separados por vírgulas (secção 3A); cada pedido
+do calendário tem até 50 s em vez de 30 s (secção 5A).
 9.ª revisão (11/11/2026): pesquisa por país ("Brasil (todos
 os aeroportos)", secção 3A); o catálogo fica só com os aeroportos com voos
 regulares (saem bases militares, pistas e aeroportos fechados, secção 3); o
@@ -168,12 +169,17 @@ Escolher um voo transforma a pesquisa nos aeroportos desse voo (título
 calendário da volta é o desse aeroporto. Voltar a "Escolher ida" (ou mudar a
 data de ida) repõe o país, sem nova pesquisa (cache do browser).
 Calendário com preços (home, cartões de datas e calendário dos resultados):
-o fornecedor recebe o id de local do Google do país (kgmid: Portugal
-/m/05r4w, Brasil /m/015fr, Angola /m/0j4b; tirado da Wikidata pelo script
-da secção 3), que cobre todos os aeroportos do país. Custa o mesmo que o de
-um aeroporto (1 pesquisa por mês só ida, 3 ida e volta) e fica nas mesmas
-caches. Os preços reais por cima do calendário (secção 8A) lêem as pesquisas
-dos aeroportos principais.
+o fornecedor recebe os aeroportos principais separados por vírgulas
+("LIS,OPO,FAO"; places.mjs, calendarId). Um só pedido devolve o preço mais
+baixo de cada dia entre eles (comparado em 11/11/2026 com o calendário de
+cada aeroporto: igual dia a dia). O id de local do país (kgmid: Portugal
+/m/05r4w, tirado da Wikidata pelo script da secção 3) foi abandonado no
+calendário: respondeu "sem resultados" depois de 34 a 43 s. Custo: só ida e
+volta com ida fixa, 1 pesquisa por mês, como um aeroporto; ida e volta em
+blocos de até 5 dias (até 7 pesquisas por mês; um bloco de 10 dias com 3
+aeroportos levou 65 s, mais do que a função pode durar). A chave da cache
+leva os aeroportos pedidos ("NBJ|LIS,OPO,FAO|…"). Os preços reais por cima
+do calendário (secção 8A) lêem as pesquisas dos aeroportos principais.
 Sem aviso de preço (o aviso segue uma viagem entre dois aeroportos): a barra
 não aparece e POST /api/alerts responde 400 COUNTRY_ALERT.
 A reserva guarda os aeroportos voados; a compra e a mensagem do WhatsApp
@@ -290,6 +296,12 @@ Tempos medidos (velocidade normal): voos 8 a 10 s; calendário só ida 8 a
 13 s; ida e volta 16 a 25 s até à última parte. A Enhanced speed promete o
 dobro da velocidade. Partir o mês em pedidos mais pequenos não acelerou e
 gastava 4 vezes mais.
+Tempo limite do calendário: cada pedido ao fornecedor tem até 50 s
+(CALENDAR_TIMEOUT_MS em server/searchapi.mjs; a função da Vercel pode durar
+60 s, vercel.json) e o browser espera 58 s. Com 30 s, a 11/11/2026, 116 de
+430 pedidos do calendário falharam por tempo (a maioria das respostas chegou
+entre 10 e 30 s): esses dias ficavam em "Ver preço" e o pedido repetia-se na
+abertura seguinte.
 Os preços não são iguais aos da SerpApi para o mesmo voo (no teste, a SerpApi
 deu até 8% mais, mesmo com deep_search): ambas lêem o Google Flights de
 maneiras diferentes. O preço final é sempre confirmado pela equipa ao emitir.
@@ -356,7 +368,8 @@ fornecedor em uso):
   principal; 4 quando origem e destino são países), cada uma com as caches de
   sempre (a mesma pesquisa para Lisboa, directa ou dentro de Portugal, só se
   paga uma vez). A volta de ida e volta é 1 pesquisa, como num aeroporto. O
-  calendário custa o mesmo que o de um aeroporto.
+  calendário do país: 1 pesquisa por mês só ida, até 7 por mês ida e volta
+  (blocos de 5 dias).
 - Ordem de grandeza sem cache: só ida 1 pesquisa + 1 mês de calendário (2 se
   os cinco dias passam de um mês para o outro); ida e volta 1 pesquisa de ida,
   1–2 de volta e 1–2 meses de calendário. Antes desta revisão: ~14 e ~5.
