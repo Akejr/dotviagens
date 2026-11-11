@@ -72,6 +72,13 @@ textos.
 
 ## Aeroportos
 
+`public/airports.json` tem só os aeroportos com voos regulares. Depois de o
+mudar, correr `node scripts/build-airport-index.mjs`: filtra o ficheiro (sai
+quem não tem voos regulares) e gera `server/airport-codes.mjs` e
+`public/airport-countries.js`, com os países da pesquisa por país
+("Brasil (todos os aeroportos)") e o id de cada país no Google, lido da
+Wikidata. Depois correr o script seguinte.
+
 `public/airports-popular.js` (os aeroportos que aparecem logo, antes de o
 catálogo completo `public/airports.json` carregar) é gerado por
 `node scripts/build-airports-popular.mjs`. Correr de novo depois de mudar a

@@ -1,4 +1,4 @@
-import {airports} from './airport-codes.mjs';
+import {isPlace,placeId} from './places.mjs';
 import {safeLogo,signResult,signedQuery} from './offers.mjs';
 import {searchApiOn,searchApiFlightsUrl,adaptFlights} from './searchapi.mjs';
 const memo=new Map(), pending=new Map();
@@ -13,7 +13,8 @@ const PAUSED='As pesquisas de voos estão em pausa por alguns minutos. Tenta nov
 export function validate(q){
  const date=s=>typeof s==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(s)&&!isNaN(Date.parse(s))&&new Date(s).toISOString().slice(0,10)===s;
  const today=new Date().toISOString().slice(0,10);
- if(!q||!airports.has(q.origin)||!airports.has(q.destination)||q.origin===q.destination)throw Error('Escolhe aeroportos diferentes da lista.');
+ // Origin and destination: airports of the list or whole countries ("Brasil (todos os aeroportos)").
+ if(!q||!isPlace(q.origin)||!isPlace(q.destination)||q.origin===q.destination)throw Error('Escolhe aeroportos diferentes da lista.');
  if(!date(q.departureDate)||q.departureDate<today||q.departureDate>new Date(Date.now()+330*86400000).toISOString().slice(0,10))throw Error('Escolhe uma data nos próximos 330 dias.');
  if(q.returnDate&&(!date(q.returnDate)||q.returnDate<q.departureDate||q.returnDate>new Date(Date.now()+330*86400000).toISOString().slice(0,10)))throw Error('Confirma a data de regresso.');
  if(q.stops!==undefined&&q.stops!==0&&q.stops!==1)throw Error('Filtro de escalas inválido.');
@@ -48,7 +49,7 @@ export async function handleSearch(request,env,fetcher=fetch,hooks={}){
  // After a quota error SerpApi is paused for a few minutes on every instance: no call is made.
  const paused=Number(await Promise.resolve(hooks.pausedUntil?.()).catch(()=>0))||0;
  if(paused>Date.now())return json({error:hooks.pauseMessage?.(paused)||PAUSED,code:'PROVIDER_PAUSED',retryAt:new Date(paused).toISOString()},503);
- let url;if(viaSearchApi)url=searchApiFlightsUrl(env,q);else{url=new URL('https://serpapi.com/search.json');url.search=new URLSearchParams({engine:'google_flights',api_key:env.SERPAPI_KEY,departure_id:q.origin,arrival_id:q.destination,outbound_date:q.departureDate,...(q.returnDate?{return_date:q.returnDate}:{}),type:q.returnDate?'1':'2',...(q.departureToken?{departure_token:q.departureToken}:{}),adults:String(q.passengers),travel_class:'1',stops:String(q.stops),currency:'BRL',hl:'pt',gl:'pt'}).toString()}
+ let url;if(viaSearchApi)url=searchApiFlightsUrl(env,q);else{url=new URL('https://serpapi.com/search.json');url.search=new URLSearchParams({engine:'google_flights',api_key:env.SERPAPI_KEY,departure_id:placeId(q.origin),arrival_id:placeId(q.destination),outbound_date:q.departureDate,...(q.returnDate?{return_date:q.returnDate}:{}),type:q.returnDate?'1':'2',...(q.departureToken?{departure_token:q.departureToken}:{}),adults:String(q.passengers),travel_class:'1',stops:String(q.stops),currency:'BRL',hl:'pt',gl:'pt'}).toString()}
  const response=await fetcher(url,{signal:AbortSignal.timeout(45000)});const raw=await response.json();const data=viaSearchApi?adaptFlights(raw):raw;
  if(response.status===401||response.status===403){report(null,'error','PROVIDER_AUTH');return json({error:`A ${viaSearchApi?'SearchApi':'SerpApi'} recusou a chave de acesso. Confirma a chave no painel do fornecedor.`,code:'PROVIDER_AUTH'},502)}
  if(response.status===429){const until=hooks.onLimit?.();report(null,'error','PROVIDER_LIMIT');return json({error:until&&hooks.pauseMessage?hooks.pauseMessage(until):PAUSED,code:'PROVIDER_LIMIT'},429)}

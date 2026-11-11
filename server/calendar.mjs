@@ -202,7 +202,7 @@ export async function handleCalendar(request, env, ctx, deps, hooks = {}) {
   // SearchApi months are cached apart from the SerpApi ones (memory and calendar_cache).
   const key = (viaSearchApi ? 'searchapi|' : '') + cacheKey(q);
   const saved = memo.get(key);
-  if (saved && saved.until > Date.now()) return answer(saved.prices, true);
+  if (saved && saved.until > Date.now()) return answer(await withRealPrices(env, deps, q, saved.prices), true);
   if (!pending.has(key)) {
     pending.set(key, (async () => {
       const shared = await sharedPrices(env, deps, key);
@@ -218,5 +218,47 @@ export async function handleCalendar(request, env, ctx, deps, hooks = {}) {
     })().finally(() => pending.delete(key)));
   }
   const result = await pending.get(key);
-  return answer(result.prices, result.cached);
+  return answer(await withRealPrices(env, deps, q, result.prices), result.cached);
+}
+
+// Google's calendar can miss the cheaper itineraries of a route (Luanda–Havana showed 31 650 BRL
+// while the searches found 7 871): a day searched by any visitor in the last 6 hours shows the
+// lowest price really found, when it is below the calendar. Applied when answering, never stored.
+// Per adult, like the calendar. Never fails the calendar.
+const TRIP_LENGTHS = [3, 5, 7, 10, 14, 21, 30, 45, 60]; // Same list as public/price-calendar.js.
+const standardTripDays = days => TRIP_LENGTHS.reduce((best, n) => (Math.abs(n - days) < Math.abs(best - days) ? n : best), TRIP_LENGTHS[0]);
+const daysBetween = (from, to) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY_MS);
+
+export async function withRealPrices(env, deps, q, prices) {
+  if (!hasSupabase(env)) return prices;
+  try {
+    const range = (column, from, to) => `(${column}.gte.${from},${column}.lte.${to})`;
+    const rows = await db(env, deps.fetcher).select('search_logs', {
+      select: 'departure_date,return_date,passengers,min_price_brl',
+      origin: `eq.${q.origin}`,
+      destination: `eq.${q.destination}`,
+      or: '(kind.is.null,kind.neq.calendar)', // neq alone would also drop the rows without kind.
+      has_token: 'is.false',
+      status: 'eq.ok',
+      created_at: `gte.${new Date(Date.now() - SHARED_TTL_MS).toISOString()}`,
+      ...(q.type === 'oneway' ? { return_date: 'is.null' } : { return_date: 'not.is.null' }),
+      ...(q.fixedOutbound ? { departure_date: `eq.${q.fixedOutbound}`, and: range('return_date', q.start, q.end) } : { and: range('departure_date', q.start, q.end) }),
+      limit: 500,
+    });
+    const best = new Map();
+    for (const row of rows) {
+      const amount = Number(row.min_price_brl) / Math.max(1, Number(row.passengers) || 1);
+      if (!(amount > 0)) continue;
+      if (q.type === 'return' && !q.fixedOutbound && standardTripDays(daysBetween(row.departure_date, row.return_date)) !== q.tripDays) continue;
+      const date = q.fixedOutbound ? row.return_date : row.departure_date;
+      if (date < q.start || date > q.end) continue;
+      if (!best.has(date) || amount < best.get(date).amount) best.set(date, { date, amount, low: false, outboundDate: row.departure_date, returnDate: row.return_date || null });
+    }
+    if (!best.size) return prices;
+    const merged = new Map(prices.map(price => [price.date, price]));
+    for (const [date, real] of best) if (!merged.has(date) || real.amount < merged.get(date).amount) merged.set(date, real);
+    return [...merged.values()].sort((a, b) => a.date.localeCompare(b.date));
+  } catch {
+    return prices;
+  }
 }

@@ -9,6 +9,7 @@ import { HttpError, json, readJson, assertSameOrigin, cleanText, publicOrigin } 
 import { db } from './supabase.mjs';
 import { requireUser, requireAdmin, secret } from './auth.mjs';
 import { validate } from './flights.mjs';
+import { isCountry } from './places.mjs';
 import { signOffer, signedQuery } from './offers.mjs';
 import { currentRate, currentMarkup, priceAoa } from './rates.mjs';
 import { smsText, ascii } from './sms.mjs';
@@ -66,6 +67,10 @@ export async function createAlert(request, env, ctx, deps) {
     q = validate({ ...body.query, cabin: 'economy', stops: 0, departureToken: undefined });
   } catch (error) {
     throw new HttpError(400, error.message, 'INVALID_QUERY');
+  }
+  // An alert follows one exact trip between two airports, not a whole country.
+  if (isCountry(q.origin) || isCountry(q.destination)) {
+    throw new HttpError(400, 'Os avisos de preço são para viagens entre dois aeroportos. Escolhe o aeroporto e cria o aviso.', 'COUNTRY_ALERT');
   }
   const leg = body.offer;
   if (!leg || typeof leg !== 'object' || !leg.offer || typeof leg.offer.sig !== 'string' || !leg.query || typeof leg.searchedAt !== 'string') {

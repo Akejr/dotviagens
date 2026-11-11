@@ -8,6 +8,7 @@ import { requireUser, secret } from './auth.mjs';
 import { verifyItinerary, makeQuote, readQuote, QUOTE_TTL_MS } from './offers.mjs';
 import { currentRate, currentMarkup, priceAoa } from './rates.mjs';
 import { validatePassengers } from './passengers.mjs';
+import { isCountry } from './places.mjs';
 import { hasWiza, createCharge, paymentStatus, transactionInfo, wizaMessage } from './wiza.mjs';
 import { hasVero, isVeroSandbox, ensureCustomer, issueInvoice, invoiceStatus } from './vero.mjs';
 import { smsText } from './sms.mjs';
@@ -246,8 +247,9 @@ export async function createBooking(request, env, ctx, deps) {
     contact_phone: session.customer.phone,
     contact_email: contactEmail,
     trip_type: verified.roundTrip ? 'return' : 'oneway',
-    origin: q.origin,
-    destination: q.destination,
+    // A search to a whole country records the airports actually flown (the itinerary keeps the query).
+    origin: isCountry(q.origin) ? verified.outbound.offer.segments[0].from : q.origin,
+    destination: isCountry(q.destination) ? verified.outbound.offer.segments.at(-1).to : q.destination,
     departure_date: q.departureDate,
     return_date: q.returnDate,
     passengers_count: q.passengers,

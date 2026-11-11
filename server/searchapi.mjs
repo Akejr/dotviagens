@@ -3,6 +3,8 @@
 // are converted to the SerpApi format that the rest of the server reads, so logs, shared caches,
 // the pause after a quota error and the price alerts work the same with both providers.
 
+import { placeId } from './places.mjs';
+
 const BASE = 'https://www.searchapi.io/api/v1/search';
 const DAY_MS = 86400000;
 // Calendar months in as few requests as possible (each request is 1 credit). Smaller blocks in
@@ -44,8 +46,8 @@ function requestUrl(env, params) {
 export function searchApiFlightsUrl(env, q) {
   return requestUrl(env, {
     engine: 'google_flights',
-    departure_id: q.origin,
-    arrival_id: q.destination,
+    departure_id: placeId(q.origin),
+    arrival_id: placeId(q.destination),
     outbound_date: q.departureDate,
     ...(q.returnDate ? { return_date: q.returnDate } : {}),
     flight_type: q.returnDate ? 'round_trip' : 'one_way',

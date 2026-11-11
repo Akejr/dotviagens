@@ -34,6 +34,12 @@ document.addEventListener('error', event => {
 }, true);
 
 const city = code => cities[code] || code;
+// A search to a whole country ("Brasil (todos os aeroportos)") shows the airports actually flown.
+const tripEnds = quote => {
+  const q = quote.query;
+  const legs = quote.outbound?.segments || [];
+  return { ...q, origin: q.origin.length === 2 ? legs[0]?.from || q.origin : q.origin, destination: q.destination.length === 2 ? legs.at(-1)?.to || q.destination : q.destination };
+};
 const clock = value => esc(String(value || '').slice(11, 16));
 const dayOf = value => String(value || '').slice(0, 10);
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
@@ -445,10 +451,11 @@ async function payManual() {
   try {
     const result = await api('/api/bookings', { method: 'POST', timeout: 60000, body: bookingBody('manual') });
     const q = state.quote;
+    const ends = tripEnds(q);
     const link = whatsappLink(bookingMessage({
       reference: result.reference,
-      origin: q.query.origin,
-      destination: q.query.destination,
+      origin: ends.origin,
+      destination: ends.destination,
       outbound: q.outbound,
       inbound: q.inbound,
       passengers: state.passengers,
@@ -726,7 +733,7 @@ async function checkoutMode() {
     if (error.code === 'NO_RATE') return fatal('Compra temporariamente indisponível', error.message);
     return fatal('Não foi possível preparar a compra', error.message);
   }
-  renderHeading(state.quote.query);
+  renderHeading(tripEnds(state.quote));
   go('review', false);
 }
 
@@ -741,7 +748,7 @@ loadAirports().then(list => {
     // The WhatsApp message names the cities: rebuild those links now that the names are known.
     main.querySelectorAll('[data-booking-wa]').forEach(link => { link.href = bookingLink(statusBooking, city); });
   } else if (state.quote) {
-    renderHeading(state.quote.query);
+    renderHeading(tripEnds(state.quote));
     renderAside();
     if (state.step === 'review') renderReview();
   }

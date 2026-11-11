@@ -88,6 +88,50 @@ const postCalendar = body => fetch('/api/flights/calendar', {
   return data;
 });
 
+// Prices this visitor already got from real searches (kept by the results page in sessionStorage),
+// per adult: a searched day shows its real price when it is below the calendar (the server does the
+// same with every visitor's searches of the last 6 hours).
+function knownPrices(query, month) {
+  const found = new Map();
+  let saved = [];
+  try {
+    saved = JSON.parse(sessionStorage.getItem('dot-flight-cache-v3') || '[]');
+  } catch {
+    return found;
+  }
+  for (const [key, value] of Array.isArray(saved) ? saved : []) {
+    let q;
+    try {
+      q = JSON.parse(key);
+    } catch {
+      continue;
+    }
+    const offers = value?.data?.offers;
+    if (!q || q.selectedOutbound || q.departureToken || q.stops || !Array.isArray(offers) || !offers.length) continue;
+    if (q.origin !== query.origin || q.destination !== query.destination || Boolean(q.returnDate) !== (query.type === 'return')) continue;
+    let date = q.departureDate;
+    if (query.fixedOutbound) {
+      if (q.departureDate !== query.fixedOutbound) continue;
+      date = q.returnDate;
+    } else if (query.type === 'return' && standardTripDays(daysBetweenIso(q.departureDate, q.returnDate)) !== (query.tripDays || 7)) {
+      continue;
+    }
+    if (!String(date).startsWith(month)) continue;
+    const amount = Math.min(...offers.map(offer => Number(offer.amount)).filter(amount => amount > 0)) / Math.max(1, Number(q.passengers) || 1);
+    if (Number.isFinite(amount) && !(found.get(date) <= amount)) found.set(date, amount);
+  }
+  return found;
+}
+
+function withKnown(query, month, prices) {
+  const known = knownPrices(query, month);
+  for (const [date, amount] of known) {
+    const current = prices.get(date);
+    if (!current || amount < current.amount) prices.set(date, { ...(current || { low: false }), date, amount });
+  }
+  return prices;
+}
+
 // Map of 'YYYY-MM-DD' -> { amount (BRL for 1 adult), ... } for one month of one query.
 // When the server answers with `parts` (slow providers), every part is asked at once and
 // onPartial(map) receives the days found so far as each part arrives.
@@ -95,7 +139,7 @@ export function monthPrices(query, month, onPartial) {
   const body = requestBody(query, month);
   const key = JSON.stringify(body);
   const saved = memory.get(key);
-  if (saved && saved.until > Date.now()) return Promise.resolve(new Map(saved.prices));
+  if (saved && saved.until > Date.now()) return Promise.resolve(withKnown(query, month, new Map(saved.prices)));
   let job = pending.get(key);
   if (!job) {
     const listeners = new Set();
@@ -130,8 +174,8 @@ export function monthPrices(query, month, onPartial) {
     job = { task, listeners };
     pending.set(key, job);
   }
-  if (onPartial) job.listeners.add(onPartial);
-  return job.task;
+  if (onPartial) job.listeners.add(partial => onPartial(withKnown(query, month, partial)));
+  return job.task.then(prices => withKnown(query, month, new Map(prices)));
 }
 
 // Starts loading a month in the background. Not used on hover or on route choice any more:

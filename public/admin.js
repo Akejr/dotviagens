@@ -95,8 +95,11 @@ let knownRefs = null;
 const fmtNumber = value => new Intl.NumberFormat('pt-AO').format(Number(value) || 0);
 const fmtRate = value => new Intl.NumberFormat('pt-AO', { maximumFractionDigits: 4 }).format(Number(value) || 0);
 const pct = bp => `${new Intl.NumberFormat('pt-AO', { maximumFractionDigits: 2 }).format((Number(bp) || 0) / 100)}%`;
-const city = code => (cities[code] ? `${cities[code]} (${code})` : code);
-const cityName = code => cities[code] || code;
+// Searches for a whole country use its 2-letter ISO code (e.g. BR = every airport in Brazil).
+const regionNames = new Intl.DisplayNames(['pt-AO', 'pt-PT', 'pt'], { type: 'region' });
+const wholeCountry = code => (/^[A-Z]{2}$/.test(code || '') ? regionNames.of(code) || code : null);
+const city = code => (cities[code] ? `${cities[code]} (${code})` : wholeCountry(code) ? `${wholeCountry(code)} (todos os aeroportos)` : code);
+const cityName = code => cities[code] || wholeCountry(code) || code;
 const clockLuanda = new Intl.DateTimeFormat('pt-PT', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Africa/Luanda' });
 const hourLuanda = new Intl.DateTimeFormat('pt-PT', { hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Luanda' });
 const longToday = new Intl.DateTimeFormat('pt-PT', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Africa/Luanda' });
