@@ -2,7 +2,7 @@
 // SerpApi: one provider call per month view; SearchApi round trips: 3 parts. Memoised 30 minutes. Prices stay in BRL:
 // the browser applies the câmbio do dia and the DOT fee, like every other price.
 
-import { airports } from './airport-codes.mjs';
+import { isPlace, isCountry, placeId, mainAirports } from './places.mjs';
 import { HttpError, json, readJson, assertSameOrigin, isoDate, defer } from './http.mjs';
 import { noResults } from './flights.mjs';
 import { db, hasSupabase } from './supabase.mjs';
@@ -35,7 +35,8 @@ export function validateCalendar(body, now = Date.now()) {
     throw new HttpError(400, message, 'INVALID_CALENDAR');
   };
   const { origin, destination, type, month } = body || {};
-  if (!airports.has(origin) || !airports.has(destination) || origin === destination) fail('Escolhe aeroportos diferentes da lista.');
+  // Airports of the list or whole countries (the provider receives the country's Google location id).
+  if (!isPlace(origin) || !isPlace(destination) || origin === destination) fail('Escolhe aeroportos diferentes da lista.');
   const passengers = body.passengers ?? 1;
   if (!Number.isInteger(passengers) || passengers < 1 || passengers > 4) fail('Pesquisa disponível para 1 a 4 adultos.');
   // Part of the month (SearchApi round trips only; ignored otherwise).
@@ -105,8 +106,8 @@ async function fetchPrices(env, q, key, fetcher, hooks, onLimit = () => 0) {
   url.search = new URLSearchParams({
     engine: 'google_flights_calendar',
     api_key: env.SERPAPI_KEY,
-    departure_id: q.origin,
-    arrival_id: q.destination,
+    departure_id: placeId(q.origin),
+    arrival_id: placeId(q.destination),
     type: q.type === 'return' ? '1' : '2',
     date_range_start: q.start,
     date_range_end: q.end,
@@ -233,10 +234,12 @@ export async function withRealPrices(env, deps, q, prices) {
   if (!hasSupabase(env)) return prices;
   try {
     const range = (column, from, to) => `(${column}.gte.${from},${column}.lte.${to})`;
+    // A whole country is searched through its main airports, so those are the rows to read.
+    const place = code => (isCountry(code) && mainAirports(code).length ? `in.(${mainAirports(code).join(',')})` : `eq.${code}`);
     const rows = await db(env, deps.fetcher).select('search_logs', {
       select: 'departure_date,return_date,passengers,min_price_brl',
-      origin: `eq.${q.origin}`,
-      destination: `eq.${q.destination}`,
+      origin: place(q.origin),
+      destination: place(q.destination),
       or: '(kind.is.null,kind.neq.calendar)', // neq alone would also drop the rows without kind.
       has_token: 'is.false',
       status: 'eq.ok',

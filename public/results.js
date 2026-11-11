@@ -6,16 +6,22 @@ import {mountOtp} from './otp-widget.js';
 import {money,moneyKz,totalKz,totalBrl,duration,dateText,availableAirlines,filterOffers,itineraryTotal,signature,resolveReturns} from './flight-model.js';
 import {loadPricing,openCalendarPopover,daysBetweenIso,monthPrices,standardTripDays,adultsOf} from './price-calendar.js';
 import {airlineMark,airlineNames,legAirlines,legTimeline} from './itinerary-ui.js';
+import {MAIN_AIRPORTS} from './main-airports.js';
 const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const add=(s,n)=>{const d=new Date(s+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10)},today=new Date().toISOString().slice(0,10),maxDate=add(today,330);
 const params=new URLSearchParams(location.search);
 // Short link of the price-alert SMS: ?v=NBJLIS2612182612281 (route, dates as YYMMDD, adults).
 const shortLink=(()=>{const m=(params.get('v')||'').toUpperCase().match(/^([A-Z]{3})([A-Z]{3})(\d{6})(\d{6})?([1-4])$/);if(!m)return false;const iso=s=>`20${s.slice(0,2)}-${s.slice(2,4)}-${s.slice(4)}`;params.set('origin',m[1]);params.set('destination',m[2]);params.set('departureDate',iso(m[3]));if(m[4])params.set('returnDate',iso(m[4]));else params.delete('returnDate');params.set('passengers',m[5]);params.delete('v');return true})();
 let query={origin:params.get('origin'),destination:params.get('destination'),departureDate:params.get('departureDate'),returnDate:params.get('returnDate')||null,passengers:Number(params.get('passengers')||1),cabin:'economy',stops:0};
-// A whole country can be searched (2-letter ISO code, e.g. BR): the provider looks at all its airports.
-// Such a search has no indicative prices per day and no price alert (both are per airport).
+// A whole country can be searched (2-letter ISO code, e.g. PT): the server compares its main airports
+// (main-airports.js) and the calendar covers the whole country. No price alert (it follows one airport).
+// Choosing a flight turns the search into that flight's airports (its return and calendar); going back
+// to the outbound restores the country.
 const isCountry=c=>/^[A-Z]{2}$/.test(c||''),regionNames=new Intl.DisplayNames(['pt'],{type:'region'});
 const countrySearch=()=>isCountry(query.origin)||isCountry(query.destination);
+let countryPlace=null;
+function choosePlace(o){if(!o.query||(o.query.origin===query.origin&&o.query.destination===query.destination))return;countryPlace??={origin:query.origin,destination:query.destination};query.origin=o.query.origin;query.destination=o.query.destination}
+function restorePlace(){if(!countryPlace)return;query.origin=countryPlace.origin;query.destination=countryPlace.destination;countryPlace=null}
 let selected=query.departureDate,windowStart,sort='price',airlines=new Set(),direct=params.get('stops')==='1',generation=0,visible=8,stage='outbound',outbound=null,inbound=null,returnData=null,returnError=null,names={},airportNames={},pricing=null,outboundMeta=null,inboundMeta=null;
 // Prices arrive in BRL and are shown as the final price: câmbio do dia + DOT fee, in kwanzas
 // (in reais + fee while no câmbio is set). The fee is never shown on its own.
@@ -53,7 +59,7 @@ function updateURL(){const p=new URLSearchParams(Object.fromEntries(Object.entri
 // shared by every visitor for 6 hours, for 1 adult x adults). A flight search runs only for the day
 // the customer picks: neighbour days are no longer searched in the background.
 const calendarState=new Map();
-function calendarQuery(){if(countrySearch())return null;const base={origin:query.origin,destination:query.destination,passengers:query.passengers};if(!query.returnDate)return {...base,type:'oneway'};if(stage==='return')return {...base,type:'return',fixedOutbound:selected};return {...base,type:'return',tripDays:standardTripDays(Math.min(60,Math.max(1,tripLength())))}}
+function calendarQuery(){const base={origin:query.origin,destination:query.destination,passengers:query.passengers};if(!query.returnDate)return {...base,type:'oneway'};if(stage==='return')return {...base,type:'return',fixedOutbound:selected};return {...base,type:'return',tripDays:standardTripDays(Math.min(60,Math.max(1,tripLength())))}}
 const calendarKey=(cq,month)=>JSON.stringify([cq.type,cq.fixedOutbound||null,cq.tripDays||null,month]);
 function loadCalendar(){if(stage==='summary'||!windowStart)return;const cq=calendarQuery();if(!cq)return;for(const month of new Set(dates().map(d=>d.slice(0,7)))){const k=calendarKey(cq,month);if(calendarState.has(k))continue;calendarState.set(k,'loading');monthPrices(cq,month,partial=>{const now=calendarState.get(k);if(now!=='loading'&&!now?.loading)return;partial.loading=true;calendarState.set(k,partial);if(stage!=='summary')renderDates()}).then(map=>calendarState.set(k,map),()=>calendarState.set(k,'error')).finally(()=>{if(stage!=='summary')renderDates()})}}
 // Total for every adult (number), 'loading', 'error' or null when the calendar has no price for the day.
@@ -61,11 +67,10 @@ function loadCalendar(){if(stage==='summary'||!windowStart)return;const cq=calen
 function calendarPrice(d){const cq=calendarQuery();if(!cq)return null;const state=calendarState.get(calendarKey(cq,d.slice(0,7)));if(!(state instanceof Map))return state||null;const amount=state.get(d)?.amount;return Number.isFinite(amount)?amount*adultsOf(cq):(state.loading?'loading':null)}
 
 function renderHeader(){
- const country=countrySearch(),help=country?'Na pesquisa por país não há preço indicativo: escolhe o dia para veres os voos.':'Preços indicativos da viagem completa: o preço exacto aparece quando escolhes o dia.';
+ const cities=codes=>{const list=[...new Set(codes.map(placeName))];return list.length>1?`${list.slice(0,-1).join(', ')} e ${list.at(-1)}`:list[0]};
  $('#route-title').innerHTML=`${esc(placeName(query.origin))} <span>→</span> ${esc(placeName(query.destination))}`;
- $('#route-meta').textContent=`${dateText(selected)}${query.returnDate?' — '+dateText(query.returnDate):''} · ${query.returnDate?'Ida e volta':'Só ida'} · ${query.passengers} adulto(s) · Económica${[query.origin,query.destination].filter(isCountry).map(c=>` · ${placeName(c)}: todos os aeroportos`).join('')}`;
- $('#date-help').textContent=stage==='return'?`Compara o regresso mantendo a ida de ${dateText(selected)}. ${help}`:query.returnDate?`Compara a ida mantendo ${tripLength()} dias de viagem. ${help}`:country?help:'Preços indicativos de cada dia: o preço exacto aparece quando escolhes o dia.';
- if(country)$('.date-compare>span').textContent='Escolhe um dia para veres os voos para todos os aeroportos da pesquisa.';
+ $('#route-meta').textContent=`${dateText(selected)}${query.returnDate?' — '+dateText(query.returnDate):''} · ${query.returnDate?'Ida e volta':'Só ida'} · ${query.passengers} adulto(s) · Económica${[query.origin,query.destination].filter(isCountry).map(c=>` · ${placeName(c)}: ${MAIN_AIRPORTS.get(c)?cities(MAIN_AIRPORTS.get(c)):'todos os aeroportos'}`).join('')}`;
+ $('#date-help').textContent=stage==='return'?`Compara o regresso mantendo a ida de ${dateText(selected)}. Preços indicativos da viagem completa: o preço exacto aparece quando escolhes o dia.`:query.returnDate?`Compara a ida mantendo ${tripLength()} dias de viagem. Preços indicativos da viagem completa: o preço exacto aparece quando escolhes o dia.`:'Preços indicativos de cada dia: o preço exacto aparece quando escolhes o dia.';
  $('#journey-steps').innerHTML=`<button data-step="outbound" class="${stage==='outbound'?'current':'complete'}">1 <span>Escolher ida</span></button>${query.returnDate?`<button data-step="return" ${outbound?'':'disabled'} class="${stage==='return'?'current':inbound?'complete':''}">2 <span>Escolher volta</span></button>`:''}<span class="${stage==='summary'?'current':''}">${query.returnDate?'3':'2'} Rever viagem</span>`;
  $('.date-section').hidden=stage==='summary';$('.results-layout').hidden=stage==='summary';$('#trip-summary').hidden=stage!=='summary';
  $('#selection-banner').hidden=!outbound||stage==='outbound';
@@ -110,14 +115,14 @@ async function fetchDate(d){
 }
 async function loadSelected(){const gen=++generation;render();const p=fetchDate(selected);renderDates();await p;if(gen!==generation)return;render()}
 async function loadReturn(){const gen=++generation;returnData=null;returnError=null;render();const p=fetchDate(query.returnDate);renderDates();await p;if(gen!==generation)return;const e=entry(query.returnDate);returnData=e?.data;returnError=e?.error;render()}
-function selectDate(d){visible=8;airlines.clear();inbound=null;if(stage==='return'){query.returnDate=d;updateURL();loadReturn()}else{const r=returnFor(d);selected=d;query.departureDate=d;query.returnDate=r;outbound=null;stage='outbound';updateURL();loadSelected()}}
-function changeStep(step){if(step==='outbound'){++generation;stage='outbound';outbound=null;inbound=null;returnData=null;visible=8;airlines.clear();centreDates();loadSelected()}else if(outbound){stage='return';inbound=null;visible=8;airlines.clear();centreDates();loadReturn()}}
+function selectDate(d){visible=8;airlines.clear();inbound=null;if(stage==='return'){query.returnDate=d;updateURL();loadReturn()}else{restorePlace();const r=returnFor(d);selected=d;query.departureDate=d;query.returnDate=r;outbound=null;stage='outbound';updateURL();loadSelected()}}
+function changeStep(step){if(step==='outbound'){++generation;restorePlace();stage='outbound';outbound=null;inbound=null;returnData=null;visible=8;airlines.clear();centreDates();loadSelected()}else if(outbound){stage='return';inbound=null;visible=8;airlines.clear();centreDates();loadReturn()}}
 $('#date-strip').onclick=e=>{const b=e.target.closest('[data-date]');if(b)selectDate(b.dataset.date)};
 // The arrows only move the strip (indicative prices); a search runs when a day is chosen.
 $('#previous-dates').onclick=()=>{windowStart=add(windowStart,-5);if(windowStart<firstDate())windowStart=firstDate();renderDates()};
 $('#next-dates').onclick=()=>{windowStart=add(windowStart,5);renderDates()};
 function jumpTo(d){if(!validDate(d)||d<firstDate()||d>lastDate())return;windowStart=add(d,-2);if(windowStart<firstDate())windowStart=firstDate();selectDate(d)}
-$('#date-jump').onclick=e=>openCalendarPopover(e.currentTarget,{value:activeDate(),min:firstDate(),max:lastDate(),heading:stage==='return'?'Quando regressas?':'Quando começa a viagem?',outboundDay:stage==='return'?selected:null,priceQuery:calendarQuery(),emptyNote:countrySearch()?'Na pesquisa por país, o calendário não mostra preços.':'',foot:countrySearch()?'Escolhe o dia: os voos para todos os aeroportos aparecem nos resultados.':'Preços indicativos, com taxas incluídas. O valor final aparece nos resultados.',onSelect:jumpTo});
+$('#date-jump').onclick=e=>openCalendarPopover(e.currentTarget,{value:activeDate(),min:firstDate(),max:lastDate(),heading:stage==='return'?'Quando regressas?':'Quando começa a viagem?',outboundDay:stage==='return'?selected:null,priceQuery:calendarQuery(),foot:'Preços indicativos, com taxas incluídas. O valor final aparece nos resultados.',onSelect:jumpTo});
 $('#nonstop').onchange=e=>{direct=e.target.checked;visible=8;airlines.clear();updateURL();render()};
 $('#airline-filters').onchange=e=>{if(!e.target.matches('[data-airline]'))return;const a=e.target.dataset.airline;e.target.checked?airlines.add(a):airlines.delete(a);visible=8;renderDates();renderOffers()};
 function resetFilters(){airlines.clear();direct=false;visible=8;$('#nonstop').checked=false;updateURL();render()}
@@ -132,7 +137,7 @@ document.addEventListener('click',e=>{const step=e.target.closest('[data-step]')
 // A tap anywhere on a flight card opens or closes its route, not only the small button
 // (the "Seleccionar" button, links and the open route itself are left alone; selecting text too).
 function toggleRoute(b){const open=b.getAttribute('aria-expanded')==='true';b.setAttribute('aria-expanded',String(!open));document.getElementById(b.getAttribute('aria-controls')).hidden=open;b.innerHTML=`${open?'Ver percurso':'Ocultar percurso'} <span>⌄</span>`}
-$('#offers').onclick=e=>{const offer=e.target.closest('.offer-card');const b=e.target.closest('.route-toggle')||(offer&&!e.target.closest('[data-select],a,button,input,label,.route-details')&&!String(getSelection?.()||'')?offer.querySelector('.route-toggle'):null);if(b)toggleRoute(b);const pick=e.target.closest('[data-select]');if(pick&&!pick.disabled){const data=currentData(),o=data?.offers.find(o=>o.id===pick.dataset.select);if(!o)return;visible=8;airlines.clear();if(stage==='outbound'){outbound=o;outboundMeta={query:data.query,searchedAt:data.searchedAt};if(query.returnDate){stage='return';centreDates();loadReturn()}else{stage='summary';render()}}else{inbound=o;inboundMeta={query:data.query,searchedAt:data.searchedAt,outbound:data.outbound};stage='summary';++generation;render()}$('#journey-steps').scrollIntoView({behavior:'smooth',block:'start'})}if(e.target.closest('#retry-search'))stage==='return'?loadReturn():loadSelected();if(e.target.closest('#reset-empty'))resetFilters()};
+$('#offers').onclick=e=>{const offer=e.target.closest('.offer-card');const b=e.target.closest('.route-toggle')||(offer&&!e.target.closest('[data-select],a,button,input,label,.route-details')&&!String(getSelection?.()||'')?offer.querySelector('.route-toggle'):null);if(b)toggleRoute(b);const pick=e.target.closest('[data-select]');if(pick&&!pick.disabled){const data=currentData(),o=data?.offers.find(o=>o.id===pick.dataset.select);if(!o)return;visible=8;airlines.clear();if(stage==='outbound'){outbound=o;outboundMeta={query:o.query||data.query,searchedAt:o.searchedAt||data.searchedAt};choosePlace(o);if(query.returnDate){stage='return';centreDates();loadReturn()}else{stage='summary';render()}}else{inbound=o;inboundMeta={query:data.query,searchedAt:data.searchedAt,outbound:data.outbound};stage='summary';++generation;render()}$('#journey-steps').scrollIntoView({behavior:'smooth',block:'start'})}if(e.target.closest('#retry-search'))stage==='return'?loadReturn():loadSelected();if(e.target.closest('#reset-empty'))resetFilters()};
 document.addEventListener('error',e=>{if(e.target.matches?.('.airline-logo')){const el=document.createElement('span');el.className='logo-fallback';el.textContent=(e.target.alt||'AV').slice(0,2);e.target.replaceWith(el)}},true);
 
 // ── Price alert: SMS when the price of this search drops ─────────────────────

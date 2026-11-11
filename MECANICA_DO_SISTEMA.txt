@@ -1,5 +1,9 @@
 DOT VIAGENS — DOCUMENTAÇÃO DO SISTEMA
-Revisão: 11 de Novembro de 2026 (9.ª) — pesquisa por país ("Brasil (todos
+Revisão: 11 de Novembro de 2026 (10.ª) — a pesquisa por país compara os
+aeroportos principais do país, um a um (a SearchApi devolvia listas curtas
+ou vazias para o país inteiro), e passa a ter preços no calendário
+(secção 3A).
+9.ª revisão (11/11/2026): pesquisa por país ("Brasil (todos
 os aeroportos)", secção 3A); o catálogo fica só com os aeroportos com voos
 regulares (saem bases militares, pistas e aeroportos fechados, secção 3); o
 calendário corrige cada dia com o menor preço real pesquisado nas últimas 6
@@ -124,31 +128,57 @@ Angola primeiro, usados no formulário de passageiros.
 3A. PESQUISA POR PAÍS ("BRASIL (TODOS OS AEROPORTOS)")
 Na origem e no destino, ao escrever 3 ou mais letras do nome de um país (a
 partir do início de uma palavra: "bras", "cuba", "estados un"), aparecem no
-topo até 3 entradas como "Brasil (todos os aeroportos)", com o número de
-aeroportos com voos e o código do país (BR). Se o texto é o código exacto de
-um aeroporto (MAD), esse aeroporto vem primeiro. Só países com 2 ou mais
-aeroportos com voos (184, lista em public/airport-countries.js). Escolhido, o
-campo mostra o nome do país e "Todos os aeroportos".
+topo até 3 entradas como "Portugal (todos os aeroportos)", com os aeroportos
+que a pesquisa compara ("Compara Lisboa, Porto e Faro") e o código do país
+(PT). Se o texto é o código exacto de um aeroporto (MAD), esse aeroporto vem
+primeiro. Só países com 2 ou mais aeroportos com voos (184, lista em
+public/airport-countries.js). Escolhido, o campo mostra o nome do país e
+"Compara Lisboa, Porto e Faro".
 O código do país (ISO de 2 letras) segue no endereço:
-/resultados?origin=NBJ&destination=BR&… O servidor (server/places.mjs:
-isCountry, isPlace, placeId) aceita-o e envia ao fornecedor o id de local do
-Google desse país (kgmid: Brasil /m/015fr, Cuba /m/0d04z6, Angola /m/0j4b;
-tirado da Wikidata pelo script da secção 3) em departure_id ou arrival_id.
-Uma só pesquisa devolve os melhores voos para qualquer aeroporto do país
-(teste real Luanda → Brasil: chegadas a GRU, GIG, SDU, REC, BSB, CNF, POA e
-CWB). Na ida e volta, a volta usa o departure_token da ida escolhida e parte
-do aeroporto onde a ida chegou.
-Sem preços no calendário nem nos cartões de datas: a home diz "Na pesquisa
-por país, o calendário não mostra preços. Os melhores voos aparecem nos
-resultados."; os resultados dizem "Na pesquisa por país não há preço
-indicativo: escolhe o dia para veres os voos." e os cartões mostram "Ver
-preço" até o dia ser pesquisado. /api/flights/calendar recusa códigos de país
-(400, sem gastar pesquisas).
+/resultados?origin=NBJ&destination=PT&… (server/places.mjs: isCountry,
+isPlace, placeId, mainAirports).
+Voos: o servidor pesquisa os aeroportos principais do país, um a um e ao
+mesmo tempo, e junta as ofertas ordenadas pelo preço (server/flights.mjs,
+searchCountry). Até 3 aeroportos; quando origem e destino são países, 2 x 2.
+Cada pesquisa de aeroporto é uma pesquisa normal: usa as caches, fica em
+search_logs com o seu aeroporto e segue os avisos de preço dessa rota. Cada
+oferta leva a pesquisa de onde veio (query, searchedAt) e é assinada de novo
+com um id único ("1-0"): a cotação e a compra usam essa pesquisa.
+Porquê aeroporto a aeroporto: a SearchApi responde mal às pesquisas de vários
+aeroportos do Google (o país inteiro pelo id de local, ou códigos separados
+por vírgulas). Teste de 11/11/2026, Luanda → Portugal a 1/2/2027: a SearchApi
+devolveu 3 voos da TAAG para Lisboa em 2 s, enquanto a página do Google
+mostrava 11 voos, o mais barato para o Porto (Lufthansa, 2 322 BRL); Luanda →
+Brasil voltou vazio. Com os 3 aeroportos um a um: 36 ofertas para Lisboa,
+Porto e Faro em 14 s, a mais barata para o Porto.
+Aeroportos principais (server/main-airports.mjs e public/main-airports.js,
+GERADOS por scripts/build-main-airports.mjs): as primeiras cidades que o
+Google Flights sugere para o nome do país (Portugal: Lisboa, Porto, Faro;
+Brasil: Rio de Janeiro, São Paulo, Salvador), o primeiro aeroporto de cada
+cidade ou a porta internacional quando a cidade tem vários (Istambul IST,
+Seul ICN, Buenos Aires EZE, Rio GIG); o aeroporto com mais passageiros do
+país (Wikidata) entra primeiro quando nenhuma dessas cidades o tem (Alemanha:
+Frankfurt, Berlim, Munique). Exemplos: PT LIS, OPO, FAO; BR GIG, GRU, SSA;
+ZA CPT, MQP, JNB; US ATL, JFK, LAX. O script custa ~190 pesquisas da SearchApi
+(uma por país) e guarda as sugestões em node_modules/.cache: correr de novo
+só pede outra vez com --refresh. Um país sem aeroportos principais seria
+pesquisado pelo id de local (kgmid); hoje todos os 184 têm.
+Escolher um voo transforma a pesquisa nos aeroportos desse voo (título
+"Luanda → Rio de Janeiro"): a volta pede o departure_token nessa rota e o
+calendário da volta é o desse aeroporto. Voltar a "Escolher ida" (ou mudar a
+data de ida) repõe o país, sem nova pesquisa (cache do browser).
+Calendário com preços (home, cartões de datas e calendário dos resultados):
+o fornecedor recebe o id de local do Google do país (kgmid: Portugal
+/m/05r4w, Brasil /m/015fr, Angola /m/0j4b; tirado da Wikidata pelo script
+da secção 3), que cobre todos os aeroportos do país. Custa o mesmo que o de
+um aeroporto (1 pesquisa por mês só ida, 3 ida e volta) e fica nas mesmas
+caches. Os preços reais por cima do calendário (secção 8A) lêem as pesquisas
+dos aeroportos principais.
 Sem aviso de preço (o aviso segue uma viagem entre dois aeroportos): a barra
 não aparece e POST /api/alerts responde 400 COUNTRY_ALERT.
-A reserva guarda os aeroportos voados (primeiro e último segmento da ida),
-não o país; a compra e a mensagem do WhatsApp mostram os aeroportos reais.
-O painel mostra o nome do país nas pesquisas por país.
+A reserva guarda os aeroportos voados; a compra e a mensagem do WhatsApp
+mostram os aeroportos reais. O painel mostra as pesquisas de cada aeroporto
+(e o nome do país nos registos antigos por país).
 
 4. PESQUISA E ESTADO
 home.html contém formulário e branding, app.js valida e navega para
@@ -322,8 +352,11 @@ fornecedor em uso):
 - Não enviamos no_cache=true; mantemos o cache do próprio fornecedor activo.
 - Cotação e compra NÃO fazem novas pesquisas pagas: usam as ofertas assinadas.
 - Os avisos de preço (secção 9A) não fazem pesquisas: usam as dos visitantes.
-- Pesquisa por país (secção 3A): 1 pesquisa, como para um aeroporto (o
-  fornecedor procura todos os aeroportos do país de uma vez); sem calendário.
+- Pesquisa por país (secção 3A): até 3 pesquisas por data (uma por aeroporto
+  principal; 4 quando origem e destino são países), cada uma com as caches de
+  sempre (a mesma pesquisa para Lisboa, directa ou dentro de Portugal, só se
+  paga uma vez). A volta de ida e volta é 1 pesquisa, como num aeroporto. O
+  calendário custa o mesmo que o de um aeroporto.
 - Ordem de grandeza sem cache: só ida 1 pesquisa + 1 mês de calendário (2 se
   os cinco dias passam de um mês para o outro); ida e volta 1 pesquisa de ida,
   1–2 de volta e 1–2 meses de calendário. Antes desta revisão: ~14 e ~5.
@@ -745,6 +778,8 @@ plano). public/airports-popular.js: 50 aeroportos para a primeira abertura
 (GERADO por scripts/build-airports-popular.mjs; não editar à mão).
 public/airport-countries.js: países da pesquisa por país (GERADO por
 scripts/build-airport-index.mjs; não editar à mão).
+public/main-airports.js e server/main-airports.mjs: aeroportos principais de
+cada país (GERADOS por scripts/build-main-airports.mjs, secção 3A).
 scripts/build-airport-index.mjs: deixa no airports.json só os aeroportos com
 voos regulares e gera server/airport-codes.mjs e public/airport-countries.js
 (secção 3).
@@ -773,7 +808,8 @@ server/router.mjs: rotas /api e registo das pesquisas.
 server/http.mjs, crypto.mjs, phone.mjs: utilitários.
 server/flights.mjs: pesquisa, validação e cache. server/airport-codes.mjs:
 aeroportos aceites e países com o id do Google (GERADO, secção 3).
-server/places.mjs: aeroporto ou país (isCountry, isPlace, placeId), secção 3A.
+server/places.mjs: aeroporto ou país (isCountry, isPlace, placeId,
+mainAirports), secção 3A.
 server/searchapi.mjs: SearchApi (pedidos, conversão para o formato SerpApi,
 partes do calendário de ida e volta).
 server/calendar.mjs: preços por dia (SerpApi Google Flights Calendar).
@@ -1047,17 +1083,21 @@ calendário (incluindo o cache partilhado), pagamento manual (WhatsApp),
 jornadas de pesquisa, painel ao vivo, taxa DOT alterável, pesquisas
 partilhadas, pausa por limite da SerpApi, cota da conta e avisos de preço
 (limiares de 50 000 e 100 000 Kz, SMS falhado, cliente bloqueado, limite de
-10), a localização das pesquisas, a pesquisa por país (kgmid, calendário e
-aviso recusados, reserva com os aeroportos voados) e os preços reais por cima
+10), a localização das pesquisas, a pesquisa por país (aeroportos principais
+juntos e assinados, cache por aeroporto, calendário do país pelo kgmid,
+aviso recusado, reserva com o aeroporto voado) e os preços reais por cima
 do calendário foram validados com fornecedores simulados (57 verificações,
 mais 13 do caminho SearchApi) e no browser
 (desktop e telemóvel 320–390 px; na 7.ª revisão: cartões de datas sem
 pesquisas extra, setas, toque no cartão do voo, janela do aviso com e sem
 sessão, link curto ?v=, calendário da home sem pré-carregamento e painel
-com Avisos, taxa DOT, cota e pausa; na 9.ª: entradas de país na pesquisa,
-calendário sem pedidos, resultados Luanda → Brasil com a volta pelo token e
-sem aviso), mais consultas reais à SearchApi (país inteiro como destino e
-calendário NBJ → HAV) e preços reais lidos da base de dados; o adaptador da Vercel (api/index.mjs), o build, as rotas e os
+com Avisos, taxa DOT, cota e pausa; na 9.ª e 10.ª: entradas de país na
+pesquisa, calendário do país com preços, resultados Luanda → Brasil, escolha
+de um voo que passa para o aeroporto dele, volta pelo token e regresso ao
+país sem nova pesquisa), mais consultas reais à SearchApi (país inteiro,
+aeroportos principais de Portugal pelo servidor, calendário do país e
+NBJ → HAV), a página do Google Flights para comparar, e preços reais lidos
+da base de dados; o adaptador da Vercel (api/index.mjs), o build, as rotas e os
 redireccionamentos do vercel.json, a primeira visita com rede lenta, a
 letra de 16 px nos campos e Minhas viagens (lista, separadores, painel,
 ?ref=) foram testados localmente. Estas verificações ainda não estão no

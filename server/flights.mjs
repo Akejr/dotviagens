@@ -1,5 +1,5 @@
-import {isPlace,placeId} from './places.mjs';
-import {safeLogo,signResult,signedQuery} from './offers.mjs';
+import {isPlace,placeId,isCountry,mainAirports} from './places.mjs';
+import {safeLogo,signResult,signedQuery,signOffer} from './offers.mjs';
 import {searchApiOn,searchApiFlightsUrl,adaptFlights} from './searchapi.mjs';
 const memo=new Map(), pending=new Map();
 // Memory cache of this instance (10 min) inside the 25 min window of the shared cache (hooks.cacheGet):
@@ -32,13 +32,31 @@ export const noResults=d=>typeof d?.error==='string'&&/(hasn.t returned|didn.t r
 // sid: browser session; jid: one results-page search (all its dates and returns share it).
 const safeId=v=>typeof v==='string'&&/^[A-Za-z0-9-]{8,64}$/.test(v)?v:null;
 const metaOf=b=>({kind:typeof b?.kind==='string'?b.kind.slice(0,24):null,sid:safeId(b?.sid),jid:safeId(b?.jid)});
+// A whole country: its main airports (up to 3; 2 x 2 when both ends are countries) are searched one by
+// one, like any airport search (caches, records, alerts), and merged. Google answers multi-airport
+// searches slowly and SearchApi then returns a short or empty list (11/11/2026, Luanda -> Portugal on
+// 1/2/2027: 3 TAAG flights to Lisbon, while Google showed 11, Porto cheaper). Each offer keeps the
+// airport search it came from (query, searchedAt), re-signed with its new id: checkout and the
+// return of a round trip use that search. Null when the country has no main airports.
+async function searchCountry(request,raw,q,env,fetcher,hooks){
+ const both=isCountry(q.origin)&&isCountry(q.destination),take=both?2:3;
+ const ends=code=>isCountry(code)?mainAirports(code).slice(0,take):[code];
+ const pairs=[];for(const origin of ends(q.origin))for(const destination of ends(q.destination))if(origin!==destination)pairs.push([origin,destination]);
+ if(!pairs.length)return null;
+ const answers=await Promise.all(pairs.map(async([origin,destination])=>{try{const response=await handleSearch(new Request(request.url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({...raw,origin,destination})}),env,fetcher,hooks);return {status:response.status,data:await response.json()}}catch{return {status:502,data:null}}}));
+ const found=answers.filter(a=>a.status===200&&Array.isArray(a.data?.offers));
+ if(!found.length){const failed=answers.find(a=>a.data?.error)||{status:502,data:{error:'Não foi possível contactar o fornecedor de voos. Tenta novamente dentro de momentos.',code:'PROVIDER_UNAVAILABLE'}};return json(failed.data,failed.status)}
+ const offers=(await Promise.all(found.map(({data},index)=>Promise.all(data.offers.map(async offer=>{const merged={...offer,id:`${index}-${offer.id}`};return {...merged,sig:env.OFFER_SECRET?await signOffer(env.OFFER_SECRET,data.query,merged,data.searchedAt):offer.sig,query:data.query,searchedAt:data.searchedAt}}))))).flat().sort((a,b)=>a.amount-b.amount);
+ return json({demo:false,offers,currency:'BRL',passengers:q.passengers,roundTrip:!!q.returnDate,searchedAt:found.map(a=>a.data.searchedAt).sort()[0],cached:found.every(a=>a.data.cached),query:signedQuery(q),places:found.map(a=>[a.data.query.origin,a.data.query.destination]),age:Math.max(...found.map(a=>Number(a.data.age)||0))});
+}
 export async function handleSearch(request,env,fetcher=fetch,hooks={}){
  if(request.method!=='POST')return json({error:'Método não permitido.'},405);
  const origin=request.headers.get('origin');if(origin&&origin!==new URL(request.url).origin)return json({error:'Pedido não permitido.'},403);
- let q,meta;try{const body=await request.text();if(body.length>16000)return json({error:'Pedido demasiado grande.'},413);const raw=JSON.parse(body);q=validate(raw);meta=metaOf(raw)}catch(e){return json({error:e instanceof SyntaxError?'Pedido inválido.':e.message},400)}
+ let q,meta,raw;try{const body=await request.text();if(body.length>16000)return json({error:'Pedido demasiado grande.'},413);raw=JSON.parse(body);q=validate(raw);meta=metaOf(raw)}catch(e){return json({error:e instanceof SyntaxError?'Pedido inválido.':e.message},400)}
  // SearchApi when SEARCHAPI_KEY is set (see searchapi.mjs), otherwise SerpApi. Its cache keys are apart.
  const viaSearchApi=searchApiOn(env);
  if(!viaSearchApi&&!env.SERPAPI_KEY)return json({error:'A pesquisa ainda não está configurada.'},503);
+ if(!q.departureToken&&(isCountry(q.origin)||isCountry(q.destination))){const merged=await searchCountry(request,raw,q,env,fetcher,hooks);if(merged)return merged}
  const started=Date.now();const report=(result,status,errorCode=null)=>{try{hooks.onSearch?.({q,meta,status,errorCode,cached:!!result?.cached,offers:result?.offers||[],durationMs:Date.now()-started})}catch{}};
  const key=(viaSearchApi?'searchapi|':'')+JSON.stringify(q);const saved=memo.get(key);if(saved&&saved.until>Date.now()){const result=reused(saved.data);report(result,result.offers.length?'ok':'empty');return json(result)}
  if(pending.has(key))return pending.get(key).then(r=>r.clone());

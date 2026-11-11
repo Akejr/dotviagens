@@ -88,7 +88,8 @@ export function calendarParts(q) {
 // One month of the calendar as {response, data: {prices: [{outbound_date, return_date, price}]}} (SerpApi format).
 // One way and fixed departure: 1 request. Round trip of N days: 3 blocks of ~11 departure days.
 export async function searchApiCalendar(env, q, fetcher) {
-  const common = { engine: 'google_flights_calendar', departure_id: q.origin, arrival_id: q.destination, adults: String(q.passengers), stops: 'any' };
+  // A whole country goes as its Google location id: the calendar covers all its airports.
+  const common = { engine: 'google_flights_calendar', departure_id: placeId(q.origin), arrival_id: placeId(q.destination), adults: String(q.passengers), stops: 'any' };
   const requests = [];
   if (q.type !== 'return') {
     for (const [from, to] of blocks(q.start, q.end, ONE_WAY_BLOCK_DAYS)) {

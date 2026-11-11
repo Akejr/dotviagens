@@ -77,7 +77,10 @@ mudar, correr `node scripts/build-airport-index.mjs`: filtra o ficheiro (sai
 quem não tem voos regulares) e gera `server/airport-codes.mjs` e
 `public/airport-countries.js`, com os países da pesquisa por país
 ("Brasil (todos os aeroportos)") e o id de cada país no Google, lido da
-Wikidata. Depois correr o script seguinte.
+Wikidata. Depois correr `node scripts/build-main-airports.mjs` (os aeroportos
+principais que a pesquisa por país compara; usa a `SEARCHAPI_KEY` do
+`.dev.vars`, ~190 pesquisas só na primeira vez ou com `--refresh`) e o
+script seguinte.
 
 `public/airports-popular.js` (os aeroportos que aparecem logo, antes de o
 catálogo completo `public/airports.json` carregar) é gerado por
