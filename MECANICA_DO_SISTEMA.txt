@@ -232,7 +232,19 @@ assinatura das ofertas, os registos, as caches partilhadas, a pausa depois de
 um erro de limite (HTTP 429) e os avisos de preço funcionam igual. As caches
 da SearchApi têm chave própria (prefixo searchapi|), separadas das da SerpApi.
 Pedidos: só ida, ida e volta e voltas da ida escolhida (departure_token) como
-na secção 5; stops=any; travel_class=economy; currency BRL; hl e gl pt.
+na secção 5; stops=any; travel_class=economy; currency BRL; hl e gl pt;
+show_cheapest_flights=true (ida e voltas), que dá os preços do separador
+"Mais baratos" do Google Flights. Sem ele a SearchApi devolve o separador
+"Melhores", que deixava voos de fora e dava preços mais altos aos mesmos voos
+(11/11/2026: Luanda-Windhoek 21 a 29/12 a R$ 5.998 em vez do directo da TAAG
+a R$ 4.922; TP 298 Luanda-Lisboa a R$ 2.512 em vez de R$ 2.141). O gl não
+mudou os preços (pt, br e ao iguais). separate_tickets=1 esconde bilhetes
+separados e ligações por conta própria (ex.: Lufthansa + Ryanair + Iberia
+para Lisboa), que esse separador junta e o site não assinala: um só bilhete
+por viagem, como antes. Sem esse filtro Luanda-Windhoek descia a R$ 4.701
+(ida e volta em bilhetes separados). O calendário (google_flights_calendar)
+não tem show_cheapest_flights; os dias já pesquisados mostram o preço real
+mais baixo.
 Calendário (cada pedido conta 1 pesquisa):
 - só ida: 1 pedido por mês (outbound_date_start/end);
 - volta com ida fixa: 1 pedido (ida fixa + return_date_start/end);

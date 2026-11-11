@@ -43,6 +43,12 @@ function requestUrl(env, params) {
 }
 
 // Same search as SerpApi: one way, round trip, or the returns of a chosen outbound (departure_token).
+// show_cheapest_flights: the prices of Google Flights' "Mais baratos" tab, the ones people compare with.
+// The default ("Melhores") left flights out and priced the same flights higher (11 Nov 2026:
+// NBJ-WDH 21-29 Dec R$ 5,998 instead of TAAG direct R$ 4,922; TP 298 NBJ-LIS R$ 2,512 instead of R$ 2,141).
+// The returns step needs it too: without it, an outbound of this mode answers no returns.
+// separate_tickets=1 hides separate and self-transfer tickets (e.g. Lufthansa + Ryanair + Iberia to
+// Lisbon), which that tab adds and the site cannot flag: one ticket per trip, as before.
 export function searchApiFlightsUrl(env, q) {
   return requestUrl(env, {
     engine: 'google_flights',
@@ -54,6 +60,8 @@ export function searchApiFlightsUrl(env, q) {
     ...(q.departureToken ? { departure_token: q.departureToken } : {}),
     adults: String(q.passengers),
     stops: q.stops === 1 ? 'nonstop' : 'any',
+    show_cheapest_flights: 'true',
+    separate_tickets: '1',
   });
 }
 
