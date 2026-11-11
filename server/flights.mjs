@@ -21,13 +21,16 @@ export function validate(q){
  if(q.returnDate&&(!date(q.returnDate)||q.returnDate<q.departureDate||q.returnDate>new Date(Date.now()+330*86400000).toISOString().slice(0,10)))throw Error('Confirma a data de regresso.');
  if(q.stops!==undefined&&q.stops!==0&&q.stops!==1)throw Error('Filtro de escalas inválido.');
  // passengers = adults (12+); children = 2 to 11 years. Babies are sold by the team (WhatsApp).
- const children=q.children??0,cabin=q.cabin??'economy';
+ // airlines: IATA codes ("QR" or "QR,BA"): a search of one flight's airlines, to find that flight in
+ // another class when the class's list leaves it out (the list of each class is short).
+ const children=q.children??0,cabin=q.cabin??'economy',airlines=q.airlines??null;
+ if(airlines!==null&&(typeof airlines!=='string'||!/^[A-Z0-9]{2}(,[A-Z0-9]{2}){0,2}$/.test(airlines)))throw Error('Companhias inválidas.');
  if(!Number.isInteger(q.passengers)||q.passengers<1||q.passengers>4)throw Error('Pesquisa disponível para 1 a 4 adultos.');
  if(!Number.isInteger(children)||children<0||children>3)throw Error('Pesquisa disponível para até 3 crianças.');
  if(!Object.hasOwn(CABINS,cabin))throw Error('Classe de viagem inválida.');
  if(q.departureToken&&(!q.returnDate||typeof q.departureToken!=='string'||q.departureToken.length>12000||!/^[-_a-zA-Z0-9=+/]+$/.test(q.departureToken)))throw Error('Selecção de ida inválida. Pesquisa novamente.');
  // children only when there are some: the searches of adults keep their cache keys and signatures.
- return {departureToken:q.departureToken||null,origin:q.origin,destination:q.destination,departureDate:q.departureDate,returnDate:q.returnDate||null,passengers:q.passengers,...(children?{children}:{}),cabin,stops:q.stops??0};
+ return {departureToken:q.departureToken||null,origin:q.origin,destination:q.destination,departureDate:q.departureDate,returnDate:q.returnDate||null,passengers:q.passengers,...(children?{children}:{}),cabin,...(airlines?{airlines}:{}),stops:q.stops??0};
 }
 export function normalize(data,cabin='economy'){
  const cabinLabel=(CABINS[cabin]||CABINS.economy).label;
@@ -76,7 +79,7 @@ export async function handleSearch(request,env,fetcher=fetch,hooks={}){
  // After a quota error SerpApi is paused for a few minutes on every instance: no call is made.
  const paused=Number(await Promise.resolve(hooks.pausedUntil?.()).catch(()=>0))||0;
  if(paused>Date.now())return json({error:hooks.pauseMessage?.(paused)||PAUSED,code:'PROVIDER_PAUSED',retryAt:new Date(paused).toISOString()},503);
- let url;if(viaSearchApi)url=searchApiFlightsUrl(env,q);else{url=new URL('https://serpapi.com/search.json');url.search=new URLSearchParams({engine:'google_flights',api_key:env.SERPAPI_KEY,departure_id:placeId(q.origin),arrival_id:placeId(q.destination),outbound_date:q.departureDate,...(q.returnDate?{return_date:q.returnDate}:{}),type:q.returnDate?'1':'2',...(q.departureToken?{departure_token:q.departureToken}:{}),adults:String(q.passengers),...(q.children?{children:String(q.children)}:{}),travel_class:CABINS[q.cabin].serp,stops:String(q.stops),currency:'BRL',hl:'pt',gl:'pt'}).toString()}
+ let url;if(viaSearchApi)url=searchApiFlightsUrl(env,q);else{url=new URL('https://serpapi.com/search.json');url.search=new URLSearchParams({engine:'google_flights',api_key:env.SERPAPI_KEY,departure_id:placeId(q.origin),arrival_id:placeId(q.destination),outbound_date:q.departureDate,...(q.returnDate?{return_date:q.returnDate}:{}),type:q.returnDate?'1':'2',...(q.departureToken?{departure_token:q.departureToken}:{}),adults:String(q.passengers),...(q.children?{children:String(q.children)}:{}),...(q.airlines?{include_airlines:q.airlines}:{}),travel_class:CABINS[q.cabin].serp,stops:String(q.stops),currency:'BRL',hl:'pt',gl:'pt'}).toString()}
  const response=await fetcher(url,{signal:AbortSignal.timeout(45000)});const raw=await response.json();const data=viaSearchApi?adaptFlights(raw):raw;
  if(response.status===401||response.status===403){report(null,'error','PROVIDER_AUTH');return json({error:`A ${viaSearchApi?'SearchApi':'SerpApi'} recusou a chave de acesso. Confirma a chave no painel do fornecedor.`,code:'PROVIDER_AUTH'},502)}
  if(response.status===429){const until=hooks.onLimit?.();report(null,'error','PROVIDER_LIMIT');return json({error:until&&hooks.pauseMessage?hooks.pauseMessage(until):PAUSED,code:'PROVIDER_LIMIT'},429)}

@@ -27,6 +27,7 @@ export const signedQuery = q => ({
   // Only when there are children: the signatures of adult searches stay as they were.
   ...(q.children ? { children: q.children } : {}),
   cabin: q.cabin,
+  ...(q.airlines ? { airlines: q.airlines } : {}),
   stops: q.stops ?? 0,
   departureToken: q.departureToken ?? null,
 });

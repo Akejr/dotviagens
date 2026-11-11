@@ -74,7 +74,7 @@ export async function createAlert(request, env, ctx, deps) {
   }
   const leg = body.offer;
   // Alerts follow adults in economy (the price of other classes and children is not followed).
-  if (leg?.query && ((leg.query.children || 0) > 0 || (leg.query.cabin && leg.query.cabin !== 'economy') || (q.children || 0) > 0)) {
+  if (leg?.query && (leg.query.airlines || (leg.query.children || 0) > 0 || (leg.query.cabin && leg.query.cabin !== 'economy') || (q.children || 0) > 0)) {
     throw new HttpError(400, 'Os avisos de preço são para adultos em classe económica.', 'ALERT_ECONOMY_ONLY');
   }
   if (!leg || typeof leg !== 'object' || !leg.offer || typeof leg.offer.sig !== 'string' || !leg.query || typeof leg.searchedAt !== 'string') {
@@ -149,7 +149,7 @@ export async function createAlert(request, env, ctx, deps) {
 // of the same trip and sends the SMS that are due. Never throws.
 export async function checkAlerts(env, q, result, deps, request) {
   try {
-    if (q.departureToken || !result?.offers?.length || q.children || (q.cabin && q.cabin !== 'economy')) return 0;
+    if (q.departureToken || !result?.offers?.length || q.children || q.airlines || (q.cabin && q.cabin !== 'economy')) return 0;
     const store = db(env, deps.fetcher);
     const alerts = await store.select('price_alerts', {
       select: '*,customer:customers(phone,blocked)',

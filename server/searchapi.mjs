@@ -18,6 +18,8 @@ const ONE_WAY_BLOCK_DAYS = 200;
 // Each calendar request may take up to 50 s (the function may run 60 s; the browser waits 58 s).
 // With 30 s, 116 of 430 requests failed on 11/11/2026: most answered between 10 and 30 s.
 export const CALENDAR_TIMEOUT_MS = 50000;
+// SearchApi names first class "first_class" ("first" answered an error, 11/11/2026).
+const travelClass = cabin => (cabin === 'first' ? 'first_class' : cabin || 'economy');
 const roundTripBlockDays = q => (severalAirports(q) ? SEVERAL_AIRPORTS_BLOCK_DAYS : ROUND_TRIP_BLOCK_DAYS);
 
 export const searchApiOn = env => Boolean(env.SEARCHAPI_KEY) && String(env.FLIGHTS_PROVIDER || '').toLowerCase() !== 'serpapi';
@@ -67,7 +69,8 @@ export function searchApiFlightsUrl(env, q) {
     ...(q.departureToken ? { departure_token: q.departureToken } : {}),
     adults: String(q.passengers),
     ...(q.children ? { children: String(q.children) } : {}),
-    travel_class: q.cabin || 'economy',
+    ...(q.airlines ? { included_airlines: q.airlines } : {}),
+    travel_class: travelClass(q.cabin),
     stops: q.stops === 1 ? 'nonstop' : 'any',
     show_cheapest_flights: 'true',
     separate_tickets: '1',
@@ -100,7 +103,7 @@ export function calendarParts(q) {
 export async function searchApiCalendar(env, q, fetcher) {
   // A country goes as its main airports separated by commas (places.mjs, calendarId).
   const take = airportsPerSide(q.origin, q.destination);
-  const common = { engine: 'google_flights_calendar', departure_id: calendarId(q.origin, take), arrival_id: calendarId(q.destination, take), adults: String(q.passengers), travel_class: q.cabin || 'economy', stops: 'any' };
+  const common = { engine: 'google_flights_calendar', departure_id: calendarId(q.origin, take), arrival_id: calendarId(q.destination, take), adults: String(q.passengers), travel_class: travelClass(q.cabin), stops: 'any' };
   const requests = [];
   if (q.type !== 'return') {
     for (const [from, to] of blocks(q.start, q.end, ONE_WAY_BLOCK_DAYS)) {

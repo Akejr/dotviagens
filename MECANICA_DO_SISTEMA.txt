@@ -575,6 +575,14 @@ partilhada por todos os cartões) e o cartão mostra o preço desse mesmo voo
 (mesmos números e horas) nessa classe, ou "Sem Executiva neste voo".
 Seleccionar usa a oferta dessa classe: a volta e o resto da compra seguem
 nessa classe; voltar a "Escolher ida" repõe a classe da pesquisa.
+A lista de cada classe é curta (11/11/2026, Luanda → Lisboa a 11/12: a
+económica trouxe 4 voos da Lufthansa, sem o Qatar QR 1491 + QR 341 que a
+executiva mostrava). Quando o voo não está na lista da classe, o cartão faz
+mais 1 pesquisa só com as companhias desse voo (airlines "QR": SearchApi
+included_airlines, SerpApi include_airlines) e encontra-o (6 062 BRL em
+económica). Ao seleccioná-lo, a volta é pesquisada com o mesmo filtro. Só se
+nem assim aparecer: "Sem Económica neste voo".
+Primeira classe: a SearchApi chama-lhe first_class ("first" dava erro).
 Calendário: pedido para 1 adulto na classe da pesquisa (a chave da cache
 leva a classe quando não é económica) e multiplicado por adultos + crianças
 (indicativo). Os preços reais por cima do calendário e os avisos de preço
