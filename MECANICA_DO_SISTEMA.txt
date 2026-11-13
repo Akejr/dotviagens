@@ -1,5 +1,9 @@
 DOT VIAGENS — DOCUMENTAÇÃO DO SISTEMA
-Revisão: 12 de Novembro de 2026 (11.ª) — cidades com vários aeroportos
+Revisão: 13 de Novembro de 2026 (12.ª) — avisos de preço sem limite de SMS,
+botão "Consultar todos os voos" no painel e avisos com a data passada
+apagados (secção 9A); dia sem voos sugere o dia mais próximo com voos (4A);
+sessão do admin de 400 dias, renovada ao abrir o painel (9).
+11.ª revisão (12/11/2026): cidades com vários aeroportos
 ("Moscovo (todos os aeroportos)", secção 3B); crianças e classes de viagem,
 com troca de classe em cada voo dos resultados (secção 4A); "+1" na hora de
 chegada no dia seguinte; e-mails da compra pela Resend (secção 10A).
@@ -541,11 +545,16 @@ próprias: depois de cada pesquisa nova à SerpApi (de qualquer visitante, sem
 departure token), checkAlerts compara o menor preço com os avisos activos
 dessa viagem (preço actual, mínimo, número de pesquisas). Os preços do
 calendário nunca disparam avisos.
-No máximo 2 SMS por aviso:
-1. 1.º SMS quando o preço baixa MAIS de 50 000 Kz face ao preço que o cliente
-   viu (FIRST_DROP_KZ);
-2. 2.º SMS, o último, quando baixa pelo menos MAIS 100 000 Kz face ao preço
-   anunciado no 1.º SMS (SECOND_DROP_KZ). O aviso passa a done.
+Sem limite de SMS (desde 13/11/2026; antes eram no máximo 2): um SMS sempre
+que o preço baixa MAIS de 10 000 Kz (DROP_KZ) face ao último preço avisado
+(price_alerts.last_alert_kz; no primeiro, face ao preço que o cliente viu).
+O mínimo de 10 000 Kz evita SMS por pequenas mudanças do câmbio do dia.
+Painel, Avisos, "Consultar todos os voos" (POST /api/admin/alerts/check):
+pesquisa agora a viagem de cada aviso activo (a mesma viagem uma vez; até 18
+por clique, as menos consultadas primeiro, 6 de cada vez; as pesquisas de
+menos de 25 minutos vêm da cache e não gastam) e envia os SMS devidos. Diz
+quantas viagens consultou, quantas têm voos, os SMS enviados e quantas
+faltam (clicar outra vez). Fica na auditoria (alert.check_all).
 Texto (1 SMS, ASCII): "DOT Viagens: o preco da viagem Luanda-Lisboa 18/12 a
 28/12 caiu de 2 345 678 Kz para 2 100 000 Kz. Ve: dotviagens.com/resultados?
 v=NBJLIS2612182612281". Se não couber em 160 caracteres usa os códigos dos
@@ -555,10 +564,11 @@ Cada SMS é reservado com uma actualização condicional (alerts_sent N → N+1)
 duas pesquisas ao mesmo tempo não enviam o mesmo SMS duas vezes. Se o SMS
 falhar, o aviso volta ao estado anterior e a pesquisa seguinte tenta de novo
 (mesma Idempotency-Key). Clientes bloqueados não recebem.
-Os avisos terminam depois do 2.º SMS (done), quando a data da ida passa
-(pg_cron dot-expire-price-alerts, de hora a hora: expired) ou no painel
-(Desactivar; Reactivar enquanto a viagem não passou).
-Limite: só há aviso se alguém voltar a pesquisar a mesma viagem; rotas pouco
+Quando a data da ida passa, o aviso é apagado (pg_cron
+dot-delete-past-price-alerts, de hora a hora, minuto 47). No painel:
+Desactivar e Reactivar (enquanto a viagem não passou).
+Limite: só há aviso se alguém pesquisar a mesma viagem (ou o admin usar
+"Consultar todos os voos"); rotas pouco
 procuradas podem não receber aviso.
 
 4A. CRIANÇAS, CLASSES E HORAS
@@ -596,6 +606,15 @@ Compra: os formulários são primeiro os adultos e depois as crianças (o
 servidor confere as idades pela ordem: adulto 12+, criança 2 a 11 na ida);
 booking_passengers.passenger_type = adult ou child; passengers_count é o
 total; a factura diz "1 adulto e 1 criança".
+Dia sem voos: em vez de "Não há voos para esta combinação", os resultados
+dizem "Não há voos neste dia. Mas há voos a sábado, 26 de dezembro, desde …"
+e o botão "Ver voos de 26/12/2026" abre logo esse dia (1 pesquisa). O dia é
+o mais próximo (até 30 dias antes ou depois, dentro das datas permitidas)
+que já foi pesquisado com voos (preço exacto) ou que tem preço no
+calendário (indicativo); os dias já pesquisados sem voos são saltados. O
+calendário do mês anterior, deste e do seguinte é pedido quando falta (1
+pedido por mês, partilhado 6 horas). Sem nenhum: oferece o WhatsApp da DOT.
+Com filtros activos que escondem todos os voos, continua "Limpar filtros".
 "+1": nos cartões dos resultados e na ida seleccionada, a hora de chegada
 leva +1 (ou +2) quando o voo chega noutro dia (como já fazia o percurso).
 
@@ -860,7 +879,11 @@ Migrações (aplicar por ordem, uma vez, pelo MCP do Supabase ou no SQL Editor):
 8. supabase/migrations/20261111215026_dot_viagens_children_cabin_email.sql:
    search_logs.children e cabin, booking_passengers.passenger_type (adult ou
    child) e a tabela email_messages (secção 10A). Aplicada a 11/11/2026.
-As oito estão aplicadas no projecto ycbmqytyfdkrpxvjcblk (a 6.ª e a 7.ª a
+9. supabase/migrations/20261113185500_dot_viagens_alerts_unlimited.sql:
+   price_alerts.last_alert_kz e last_alert_at (avisos sem limite de SMS) e o
+   pg_cron dot-delete-past-price-alerts (apaga avisos com a ida passada) no
+   lugar de dot-expire-price-alerts. Aplicada a 13/11/2026.
+As nove estão aplicadas no projecto ycbmqytyfdkrpxvjcblk (a 6.ª e a 7.ª a
 10/11/2026).
 Dados de teste apagados a 8/11/2026 (reservas, passageiros, eventos de
 pagamento, SMS, pesquisas, auditoria e códigos OTP; booking_ref_seq voltou a

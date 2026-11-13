@@ -1,9 +1,9 @@
 // Price alerts: a customer (phone confirmed by SMS code) asks for an SMS when the price of a
 // search (route, dates and adults) drops. No extra SerpApi calls: the price is followed with
 // the searches other visitors make for the same trip (checkAlerts runs after each fresh search).
-// At most 2 SMS per alert:
-//   1st when the price is more than 50 000 Kz below the price the customer saw;
-//   2nd when it is at least 100 000 Kz below the price announced in the 1st SMS.
+// No limit of SMS: one every time the price drops more than DROP_KZ below the last price announced
+// (the price the customer saw, for the first). Alerts whose departure day has passed are deleted
+// (pg_cron dot-delete-past-price-alerts). The admin can check every active alert at once.
 
 import { HttpError, json, readJson, assertSameOrigin, cleanText, publicOrigin } from './http.mjs';
 import { db } from './supabase.mjs';
@@ -16,8 +16,8 @@ import { smsText, ascii } from './sms.mjs';
 import { sendAndRecord } from './notify.mjs';
 import { timingSafeEqual } from './crypto.mjs';
 
-export const FIRST_DROP_KZ = 50000;
-export const SECOND_DROP_KZ = 100000;
+// Smallest drop that sends an SMS: avoids messages for small daily moves of the exchange rate.
+export const DROP_KZ = 10000;
 const MAX_ACTIVE_PER_CUSTOMER = 10;
 // The reference price comes from the results the customer is looking at (signed by the server).
 const BASELINE_MAX_AGE_MS = 3 * 3600 * 1000;
@@ -176,21 +176,21 @@ export async function checkAlerts(env, q, result, deps, request) {
         lowest_price_kz: Math.min(Number(alert.lowest_price_kz ?? alert.baseline_kz), currentKz),
         checks: Number(alert.checks || 0) + 1,
       };
-      const first = alert.alerts_sent === 0 && Number(alert.baseline_kz) - currentKz > FIRST_DROP_KZ;
-      const second = alert.alerts_sent === 1 && Number(alert.first_alert_kz) - currentKz >= SECOND_DROP_KZ;
-      if (!(first || second) || alert.customer?.blocked || !alert.customer?.phone) {
+      const fromKz = Number(alert.last_alert_kz ?? alert.first_alert_kz ?? alert.baseline_kz);
+      const due = fromKz - currentKz > DROP_KZ;
+      if (!due || alert.customer?.blocked || !alert.customer?.phone) {
         await store.update('price_alerts', { id: `eq.${alert.id}` }, seen);
         continue;
       }
       const number = alert.alerts_sent + 1;
-      const fromKz = first ? Number(alert.baseline_kz) : Number(alert.first_alert_kz);
-      const mark = number === 1 ? { first_alert_kz: currentKz, first_alert_at: nowIso() } : { second_alert_kz: currentKz, second_alert_at: nowIso() };
+      const at = nowIso();
+      // first_alert_* keep the first SMS (shown in the panel); last_alert_* the most recent.
+      const mark = { last_alert_kz: currentKz, last_alert_at: at, ...(number === 1 ? { first_alert_kz: currentKz, first_alert_at: at } : {}) };
       // Claim the SMS: only one concurrent search can move alerts_sent from N to N + 1.
       const [claimed] = await store.update('price_alerts', { id: `eq.${alert.id}`, alerts_sent: `eq.${alert.alerts_sent}`, status: 'eq.active' }, {
         ...seen,
         ...mark,
         alerts_sent: number,
-        ...(number === 2 ? { status: 'done' } : {}),
       });
       if (!claimed) continue;
       try {
@@ -215,7 +215,7 @@ export async function checkAlerts(env, q, result, deps, request) {
       } catch (error) {
         // SMS not sent: give the alert back so a later search can try again (same idempotency key).
         console.error('price alert sms failed', alert.id, error?.code || error?.message);
-        const undo = number === 1 ? { first_alert_kz: null, first_alert_at: null } : { second_alert_kz: null, second_alert_at: null };
+        const undo = { last_alert_kz: alert.last_alert_kz ?? null, last_alert_at: alert.last_alert_at ?? null, ...(number === 1 ? { first_alert_kz: null, first_alert_at: null } : {}) };
         await store.update('price_alerts', { id: `eq.${alert.id}`, alerts_sent: `eq.${number}` }, { ...undo, alerts_sent: alert.alerts_sent, status: 'active' }).catch(() => {});
       }
     }
@@ -241,13 +241,58 @@ export async function listAlerts(request, env, ctx, deps) {
   if (STATUSES.has(status)) params.status = `eq.${status}`;
   if (status === 'notified') params.alerts_sent = 'gt.0';
   const count = filter => store.selectCount('price_alerts', { select: 'id', limit: 1, ...filter }).then(r => r.total).catch(() => null);
-  const [{ rows, total }, active, notified, done] = await Promise.all([
+  const [{ rows, total }, active, notified, sent] = await Promise.all([
     store.selectCount('price_alerts', params),
     count({ status: 'eq.active' }),
     count({ alerts_sent: 'gt.0' }),
-    count({ status: 'eq.done' }),
+    store.select('price_alerts', { select: 'alerts_sent', alerts_sent: 'gt.0', limit: 2000 }).then(list => list.reduce((sum, row) => sum + Number(row.alerts_sent || 0), 0)).catch(() => null),
   ]);
-  return json({ rows, total, stats: { active, notified, done }, rules: { firstDropKz: FIRST_DROP_KZ, secondDropKz: SECOND_DROP_KZ } });
+  return json({ rows, total, stats: { active, notified, sent }, rules: { dropKz: DROP_KZ } });
+}
+
+// POST /api/admin/alerts/check: searches every active alert's trip now (1 provider search per trip
+// not searched in the last 25 minutes) and sends the SMS that are due. Up to CHECK_MAX trips per
+// click, least recently checked first, CHECK_PARALLEL at a time (the function may run 60 s).
+const CHECK_MAX = 18;
+const CHECK_PARALLEL = 6;
+export async function checkAllAlerts(request, env, ctx, deps, search) {
+  assertSameOrigin(request);
+  const session = await requireAdmin(request, env, deps);
+  const store = db(env, deps.fetcher);
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Luanda' }).format(new Date());
+  const rows = await store.select('price_alerts', {
+    select: 'id,origin,destination,departure_date,return_date,passengers,last_seen_at',
+    status: 'eq.active',
+    departure_date: `gte.${today}`,
+    order: 'last_seen_at.asc.nullsfirst',
+    limit: 500,
+  });
+  const trips = new Map();
+  for (const row of rows) {
+    const key = [row.origin, row.destination, row.departure_date, row.return_date || '', row.passengers].join('|');
+    if (!trips.has(key)) trips.set(key, row);
+  }
+  const list = [...trips.values()];
+  const now = list.slice(0, CHECK_MAX);
+  const result = { trips: list.length, checked: 0, withFlights: 0, failed: 0, sms: 0, left: Math.max(0, list.length - now.length) };
+  const url = new URL('/api/flights/search', request.url);
+  const one = async row => {
+    try {
+      const body = { origin: row.origin, destination: row.destination, departureDate: row.departure_date, returnDate: row.return_date, passengers: row.passengers, cabin: 'economy', stops: 0, kind: 'alerts' };
+      const response = await search(new Request(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }), env, ctx, deps);
+      const data = await response.json();
+      if (response.status !== 200) { result.failed += 1; return; }
+      result.checked += 1;
+      if (data.offers?.length) result.withFlights += 1;
+      // A fresh search checks the alerts by itself (onFresh); a cached one is checked here.
+      if (data.cached && data.offers?.length) result.sms += await checkAlerts(env, data.query, data, deps, request);
+    } catch {
+      result.failed += 1;
+    }
+  };
+  for (let i = 0; i < now.length; i += CHECK_PARALLEL) await Promise.all(now.slice(i, i + CHECK_PARALLEL).map(one));
+  await store.insert('admin_audit', { admin_id: session.customer.id, action: 'alert.check_all', target: null, details: result }, { returning: false }).catch(() => {});
+  return json(result);
 }
 
 export async function alertAction(request, env, ctx, deps) {
@@ -267,7 +312,7 @@ export async function alertAction(request, env, ctx, deps) {
   } else if (action === 'reactivate') {
     if (alert.status !== 'cancelled') throw new HttpError(409, 'Só um aviso cancelado pode ser reactivado.', 'INVALID_STATE');
     if (alert.departure_date < new Date().toISOString().slice(0, 10)) throw new HttpError(409, 'A data da viagem já passou.', 'INVALID_STATE');
-    patch = { status: alert.alerts_sent >= 2 ? 'done' : 'active' };
+    patch = { status: 'active' };
   } else {
     throw new HttpError(400, 'Acção desconhecida.', 'UNKNOWN_ACTION');
   }

@@ -10,7 +10,7 @@ import { requestOtp, verifyOtp, me, logout, getSession } from './auth.mjs';
 import { rateEndpoint } from './rates.mjs';
 import { quote, createBooking, listMyBookings, getMyBooking, checkBooking, retryPayment, wizaCallback, sweep } from './bookings.mjs';
 import { sharedFlight, shareFlight, pausedUntil, pauseProvider, pauseMessage } from './provider.mjs';
-import { createAlert, checkAlerts, listAlerts, alertAction } from './alerts.mjs';
+import { createAlert, checkAlerts, listAlerts, alertAction, checkAllAlerts } from './alerts.mjs';
 
 import * as admin from './admin.mjs';
 
@@ -152,6 +152,7 @@ const routes = [
   ['POST', '/api/admin/pricing', admin.setMarkup],
   ['POST', '/api/admin/provider/resume', admin.resumeSearches],
   ['GET', '/api/admin/alerts', listAlerts],
+  ['POST', '/api/admin/alerts/check', (request, env, ctx, deps) => checkAllAlerts(request, env, ctx, deps, search)],
   ['POST', `/api/admin/alerts/(${UUID})`, alertAction],
   ['GET', '/api/admin/searches', admin.searches],
   ['GET', '/api/admin/searches/calls', admin.searchCalls],

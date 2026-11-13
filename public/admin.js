@@ -71,7 +71,7 @@ const AUDIT = {
 };
 // Price alerts: label and badge colour of each state.
 const ALERT_STATUS = { active: ['Activo', 'paid'], done: ['Concluído', 'ticketed'], expired: ['Expirado', 'expired'], cancelled: ['Desactivado', 'cancelled'] };
-const ALERT_FILTERS = [['', 'Todos'], ['active', 'Activos'], ['notified', 'Com SMS enviado'], ['done', 'Concluídos'], ['expired', 'Expirados'], ['cancelled', 'Desactivados']];
+const ALERT_FILTERS = [['', 'Todos'], ['active', 'Activos'], ['notified', 'Com SMS enviado'], ['cancelled', 'Desactivados']];
 // Monthly quota of the flight provider (SearchApi or SerpApi): the panel warns from 80% used.
 const SERP_WARN = 0.8;
 // DOT fee limits accepted by the server (MAX_MARKUP_BP in server/rates.mjs).
@@ -1125,10 +1125,8 @@ function alertRow(row, today) {
   const last = row.checks
     ? `<strong>${formatKz(row.last_price_kz)}</strong><small>${plural(row.checks, 'pesquisa', 'pesquisas')} · <span data-ago="${esc(row.last_seen_at)}">${esc(ago(row.last_seen_at))}</span></small>${drop > 0 ? `<small>mínimo ${formatKz(row.lowest_price_kz)} (−${formatKz(drop)})</small>` : ''}`
     : '<span class="muted">Sem pesquisas novas</span>';
-  const sent = [
-    row.first_alert_kz ? `1.º ${formatKz(row.first_alert_kz)} · ${formatDateTime(row.first_alert_at)}` : '',
-    row.second_alert_kz ? `2.º ${formatKz(row.second_alert_kz)} · ${formatDateTime(row.second_alert_at)}` : '',
-  ].filter(Boolean);
+  const lastSent = row.last_alert_kz ?? row.second_alert_kz ?? row.first_alert_kz;
+  const sent = row.alerts_sent ? [`último ${formatKz(lastSent)} · ${formatDateTime(row.last_alert_at || row.second_alert_at || row.first_alert_at)}`] : [];
   const action = row.status === 'active'
     ? `<button class="btn-sm danger" type="button" data-alert="${esc(row.id)}" data-action="cancel">Desactivar</button>`
     : row.status === 'cancelled' && String(row.departure_date) >= today
@@ -1139,7 +1137,7 @@ function alertRow(row, today) {
     <td>${esc(shortDay(row.departure_date))}${row.return_date ? ` — ${esc(shortDay(row.return_date))}` : '<small>só ida</small>'}</td>
     <td class="num"><strong>${formatKz(row.baseline_kz)}</strong><small data-ago="${esc(row.created_at)}">${esc(ago(row.created_at))}</small></td>
     <td class="num">${last}</td>
-    <td><strong>${fmtNumber(row.alerts_sent)} de 2</strong>${sent.map(text => `<small>${esc(text)}</small>`).join('')}</td>
+    <td><strong>${plural(row.alerts_sent || 0, 'SMS', 'SMS')}</strong>${sent.map(text => `<small>${esc(text)}</small>`).join('')}</td>
     <td>${alertBadge(row.status)}</td>
     <td><div class="action-bar"><a class="btn-sm" href="${esc(alertLink(row))}" target="_blank" rel="noopener">${icon('external', 14)} Voos</a>${action}</div></td></tr>`;
 }
@@ -1148,7 +1146,7 @@ async function alertsView(params, ctx) {
   const status = params.get('status') || '';
   const offset = Number(params.get('offset')) || 0;
   const limit = 30;
-  setTitle('Avisos de preço');
+  setTitle('Avisos de preço', `<button class="btn-sm primary-sm" id="check-alerts" type="button">${icon('refresh', 14)} Consultar todos os voos</button>`);
   const query = new URLSearchParams({ limit, offset });
   if (status) query.set('status', status);
   const data = await api(`/api/admin/alerts?${query}`);
@@ -1159,15 +1157,29 @@ async function alertsView(params, ctx) {
   view().innerHTML = `<div class="kpi-grid">
       ${kpi('bell', 'Avisos activos', stats.active == null ? '—' : fmtNumber(stats.active), 'À espera de uma descida de preço', '#alerts?status=active', stats.active ? 'good' : '')}
       ${kpi('message', 'Com SMS enviado', stats.notified == null ? '—' : fmtNumber(stats.notified), 'Receberam pelo menos 1 aviso', '#alerts?status=notified')}
-      ${kpi('checkCircle', 'Concluídos', stats.done == null ? '—' : fmtNumber(stats.done), 'Já receberam os 2 avisos', '#alerts?status=done')}</div>
+      ${kpi('trendDown', 'SMS enviados', stats.sent == null ? '—' : fmtNumber(stats.sent), 'Descidas de preço avisadas')}</div>
     <div class="chips spaced">${ALERT_FILTERS.map(([key, label]) => `<a class="chip ${status === key ? 'selected' : ''}" href="#alerts${key ? `?status=${key}` : ''}">${esc(label)}</a>`).join('')}</div>
     ${table('<th>Cliente</th><th>Viagem</th><th>Datas</th><th class="num">Preço visto</th><th class="num">Último preço</th><th>SMS</th><th>Estado</th><th></th>', data.rows.map(row => alertRow(row, today)).join(''), status ? 'Nenhum aviso neste estado.' : 'Ainda não há avisos de preço.')}
     ${pager(data.total, offset, limit, `alerts${status ? `?status=${status}` : ''}`)}
     <div class="admin-card"><h2>${hIcon('trendDown')} Como funcionam</h2><p>Nos resultados, o cliente indica o nome e confirma o telemóvel com um código por SMS (fica nos Utilizadores). O preço é seguido com as pesquisas que outros visitantes fazem para a mesma viagem (rota, datas e adultos), sem pesquisas extra ao fornecedor.</p>
       <ol class="formula">
-        <li><b>1.º SMS</b><span>Quando o preço baixa mais de ${formatKz(rules.firstDropKz ?? 50000)} face ao preço que o cliente viu.</span></li>
-        <li><b>2.º SMS, o último</b><span>Quando baixa pelo menos mais ${formatKz(rules.secondDropKz ?? 100000)} face ao preço do 1.º SMS.</span></li>
-        <li><b>Fim do aviso</b><span>Depois do 2.º SMS ou quando a data da viagem passa.</span></li></ol></div>`;
+        <li><b>Cada SMS</b><span>Sempre que o preço baixa mais de ${formatKz(rules.dropKz ?? 10000)} face ao último preço avisado (no primeiro, face ao preço que o cliente viu). Sem limite de SMS.</span></li>
+        <li><b>Consultar todos os voos</b><span>Pesquisa agora a viagem de cada aviso activo (1 pesquisa por viagem; as feitas há menos de 25 minutos não gastam) e envia os SMS devidos.</span></li>
+        <li><b>Fim do aviso</b><span>Quando a data da viagem passa, o aviso é apagado.</span></li></ol></div>`;
+  $('#check-alerts').onclick = async event => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    button.innerHTML = '<span class="spinner"></span> A consultar…';
+    try {
+      const r = await api('/api/admin/alerts/check', { method: 'POST', body: {}, timeout: 70000 });
+      toast(`${plural(r.checked, 'viagem consultada', 'viagens consultadas')} · ${plural(r.withFlights, 'com voos', 'com voos')} · ${plural(r.sms, 'SMS enviado', 'SMS enviados')}${r.failed ? ` · ${r.failed} sem resposta` : ''}${r.left ? ` · faltam ${r.left}: clica outra vez` : ''}`, r.failed ? 'error' : 'money');
+      route();
+    } catch (error) {
+      toast(error.message || 'Não foi possível consultar.', 'error');
+      button.disabled = false;
+      button.innerHTML = `${icon('refresh', 14)} Consultar todos os voos`;
+    }
+  };
   view().querySelectorAll('[data-alert]').forEach(element => {
     element.onclick = () => {
       const cancel = element.dataset.action === 'cancel';
