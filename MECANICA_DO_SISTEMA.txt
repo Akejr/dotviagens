@@ -500,7 +500,11 @@ máximo 5 por número e 20 por IP por hora, e 300 por hora no site inteiro
 (OTP_HOURLY_LIMIT). Guarda-se apenas o HMAC do código (AUTH_SECRET).
 A verificação é atómica na função SQL verify_otp.
 Sessão: cookie dot_session HttpOnly, SameSite=Lax (Secure em HTTPS); 30 dias
-para clientes e 12 horas para o painel. Guarda-se o SHA-256 do token.
+para clientes; administradores 400 dias (o máximo que um browser guarda um
+cookie), renovados sempre que o painel abre (GET /api/auth/me empurra a
+validade para 400 dias quando restam menos de 390): o admin só volta a pedir
+o código SMS se passar um ano sem abrir o painel, se usar "Terminar sessão",
+for bloqueado ou perder o papel de admin. Guarda-se o SHA-256 do token.
 Admin: só números com role admin ou listados em ADMIN_PHONES recebem SMS;
 números desconhecidos recebem a mesma resposta, sem SMS.
 SMS (Nsangu, https://api.nsangu.com/docs/): cada envio leva Idempotency-Key

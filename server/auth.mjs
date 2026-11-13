@@ -20,7 +20,11 @@ const IP_PER_HOUR = 20;
 // Protects the SMS wallet: codes sent by the whole site per hour (OTP_HOURLY_LIMIT overrides).
 const GLOBAL_PER_HOUR = 300;
 const CUSTOMER_DAYS = 30;
-const ADMIN_HOURS = 12;
+// Admins stay signed in on their device: 400 days (the longest a browser keeps a cookie), renewed
+// each time the panel opens (me), so the SMS code is asked only after a year without opening it,
+// after "Terminar sessão" or when the admin is blocked or loses the role.
+const ADMIN_DAYS = 400;
+const ADMIN_RENEW_DAYS = 390;
 const sessionCache = new Map();
 
 const OTP_RESULTS = {
@@ -149,7 +153,7 @@ export async function verifyOtp(request, env, ctx, deps) {
   }
 
   const token = randomToken(32);
-  const maxAge = purpose === 'admin' ? ADMIN_HOURS * 3600 : CUSTOMER_DAYS * 86400;
+  const maxAge = (purpose === 'admin' || customer.role === 'admin' ? ADMIN_DAYS : CUSTOMER_DAYS) * 86400;
   await store.insert('sessions', {
     customer_id: customer.id,
     token_hash: await sha256Hex(token),
@@ -172,7 +176,7 @@ export async function getSession(request, env, deps) {
     token_hash: `eq.${hash}`,
   });
   const valid = row && !row.revoked_at && Date.parse(row.expires_at) > Date.now() && row.customer && !row.customer.blocked;
-  const value = valid ? { id: row.id, hash, customer: row.customer } : null;
+  const value = valid ? { id: row.id, hash, customer: row.customer, expiresAt: row.expires_at } : null;
   sessionCache.set(hash, { value, until: Date.now() + 15000 });
   if (sessionCache.size > 500) sessionCache.delete(sessionCache.keys().next().value);
   return value;
@@ -197,6 +201,16 @@ export async function requireAdmin(request, env, deps) {
 
 export async function me(request, env, ctx, deps) {
   const session = await getSession(request, env, deps).catch(() => null);
+  // An admin's session (and cookie) is pushed 400 days ahead whenever it has less than 390 left.
+  if (session?.customer?.role === 'admin' && Date.parse(session.expiresAt) < Date.now() + ADMIN_RENEW_DAYS * 86400e3) {
+    const expiresAt = new Date(Date.now() + ADMIN_DAYS * 86400e3).toISOString();
+    const token = parseCookies(request)[SESSION_COOKIE];
+    const renewed = await db(env, deps.fetcher).update('sessions', { id: `eq.${session.id}`, revoked_at: 'is.null' }, { expires_at: expiresAt }).then(rows => rows.length > 0).catch(() => false);
+    if (renewed) {
+      sessionCache.delete(session.hash);
+      return json({ customer: publicCustomer(session.customer) }, 200, { 'Set-Cookie': cookie(SESSION_COOKIE, token, { maxAge: ADMIN_DAYS * 86400, secure: isHttps(request) }) });
+    }
+  }
   return json({ customer: publicCustomer(session?.customer) });
 }
 
