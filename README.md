@@ -3,7 +3,8 @@
 Pesquisa e compra de voos em kwanzas: selecção de ida e volta, calendário com o
 preço indicativo de cada dia, preço final = câmbio do dia + taxa DOT (11% por
 defeito, alterável no painel), verificação do telemóvel por SMS, avisos de preço
-por SMS (até 2 por viagem), dados dos passageiros, pagamento manual pelo
+por SMS, compra com IA num chat (OpenRouter: pesquisa, compara os 3 dias
+antes e depois, passageiros, SMS e reserva), dados dos passageiros, pagamento manual pelo
 WhatsApp ou Multicaixa Express e referência (Wiza), factura certificada (Vero),
 área Minhas viagens, blog em `/blog` e painel de administração em tempo real em
 `/admin` (com a cota da SerpApi e a pausa automática das pesquisas depois de

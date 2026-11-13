@@ -14,7 +14,7 @@ const root = $('#admin-root');
 const dialog = $('#admin-dialog');
 const LIVE_MS = 3000;
 const NAV = [
-  ['OPERAÇÃO', [['overview', 'Visão geral', 'dashboard'], ['searches', 'Pesquisas', 'activity'], ['bookings', 'Compras', 'ticket'], ['customers', 'Utilizadores', 'users'], ['alerts', 'Avisos', 'bell']]],
+  ['OPERAÇÃO', [['overview', 'Visão geral', 'dashboard'], ['searches', 'Pesquisas', 'activity'], ['bookings', 'Compras', 'ticket'], ['ai', 'IA', 'sparkles'], ['customers', 'Utilizadores', 'users'], ['alerts', 'Avisos', 'bell']]],
   ['CONFIGURAÇÃO', [['rates', 'Câmbio e preço', 'coins'], ['sms', 'SMS', 'message'], ['audit', 'Auditoria', 'list'], ['system', 'Sistema', 'settings']]],
 ];
 // Live topics (keys of admin_live_state) that refresh each screen.
@@ -29,6 +29,7 @@ const TOPICS = {
   sms: ['sms'],
   audit: ['audit'],
   system: ['pricing', 'provider_pause'],
+  ai: ['bookings', 'payments'],
 };
 const STATUS = {
   pending_payment: 'A aguardar pagamento',
@@ -391,6 +392,7 @@ function route() {
     booking: (p, ctx) => bookingView(decodeURIComponent(argument || ''), ctx),
     customers: customersView,
     alerts: alertsView,
+    ai: (p, ctx) => (argument ? aiConversationView(decodeURIComponent(argument), ctx) : aiView(p, ctx)),
     rates: ratesView,
     sms: smsView,
     audit: auditView,
@@ -472,6 +474,7 @@ function integrationList(state, sms) {
     ${row(state.search, 'Pesquisa de voos', `${state.searchProvider || searchProvider} · Google Flights e calendário de preços`)}
     ${row(state.sms, 'SMS', sms ? `Nsangu · ${fmtNumber(sms.availableSms)} SMS disponíveis` : 'Nsangu')}
     ${row(state.email, 'E-mails', 'Resend · confirmação ao cliente e aviso de compra')}
+    ${row(state.ai, 'Compra com IA', state.aiModel ? `OpenRouter · ${state.aiModel}` : 'OpenRouter')}
     ${row(state.payments, 'Pagamentos', 'Wiza · Multicaixa Express e referência')}
     ${row(state.invoices, 'Facturação', state.invoicesSandbox ? 'Vero · chave de teste (não chega à AGT)' : 'Vero · factura certificada AGT')}
     ${row(state.auth && state.offerSigning, 'Segredos internos', 'AUTH_SECRET e OFFER_SECRET')}
@@ -861,7 +864,7 @@ async function bookingsView(params, ctx) {
   view().innerHTML = `<div class="toolbar"><form class="search-input" id="search">${icon('search', 16)}<input name="q" value="${esc(term)}" placeholder="Referência, telefone, nome ou e-mail" aria-label="Pesquisar compras"></form></div>
     <div class="chips spaced">${FILTERS.map(([key, label]) => `<a class="chip ${status === key ? 'selected' : ''}" href="#bookings${key ? `?status=${key}` : ''}">${label}</a>`).join('')}</div>
     ${table('<th>Referência</th><th>Cliente</th><th>Viagem</th><th class="num">Valor</th><th>Estado</th><th>Pagamento</th><th>Factura</th>', data.rows.map(row => `<tr class="clickable${previous && !previous.has(row.reference) ? ' new' : ''}" data-ref="${esc(row.reference)}">
-      <td class="mono"><strong>${esc(row.reference)}</strong><small>${esc(formatDateTime(row.created_at))}</small></td>
+      <td class="mono"><strong>${esc(row.reference)}</strong><small>${esc(formatDateTime(row.created_at))}</small>${row.channel === 'ai' ? `<small class="ai-tag">${icon('sparkles', 12)} Feito pela IA</small>` : ''}</td>
       <td>${esc(row.contact_name)}<small>${esc(formatPhone(row.contact_phone))}</small></td>
       <td>${esc(city(row.origin))} ${row.trip_type === 'return' ? '⇄' : '→'} ${esc(city(row.destination))}<small>${esc(formatDate(row.departure_date))}${row.return_date ? ` — ${esc(formatDate(row.return_date))}` : ''} · ${plural(row.passengers_count, 'passageiro', 'passageiros')}</small></td>
       <td class="num">${amountCell(row)}</td>
@@ -927,7 +930,7 @@ function renderBooking(data) {
     ['paid', 'ticketed', 'cancelled'].includes(b.status) ? button('refund', 'wallet', 'Marcar reembolsado') : '',
     !['cancelled', 'refunded'].includes(b.status) ? button('cancel', 'x', 'Cancelar reserva', 'danger') : '',
   ].join('');
-  view().innerHTML = `<div class="admin-card"><div class="detail-head"><div><h2>${esc(b.reference)} ${statusBadge(b.status)} ${b.needs_review ? `<span class="flag">${icon('alert', 14)} Para rever</span>` : ''}${b.imported ? `<span class="flag">${icon('file', 14)} Venda fora do site</span>` : ''}</h2>
+  view().innerHTML = `<div class="admin-card"><div class="detail-head"><div><h2>${esc(b.reference)} ${statusBadge(b.status)} ${b.needs_review ? `<span class="flag">${icon('alert', 14)} Para rever</span>` : ''}${b.imported ? `<span class="flag">${icon('file', 14)} Venda fora do site</span>` : ''}${b.channel === 'ai' ? `<span class="flag ai-flag">${icon('sparkles', 14)} Feito pela IA</span>` : ''}</h2>
       <p>${b.imported ? 'Registada à mão em' : 'Criada em'} ${esc(formatDateTime(b.created_at))}${b.paid_at ? ` · paga em ${esc(formatDateTime(b.paid_at))}` : ''}${b.ticketed_at ? ` · emitida em ${esc(formatDateTime(b.ticketed_at))}` : ''}</p>
       <div class="action-bar" style="margin-top:16px">${actions}</div></div>
       ${amountBox(b)}</div></div>
@@ -1197,6 +1200,61 @@ async function alertsView(params, ctx) {
   });
 }
 
+// ── Purchase by AI ───────────────────────────────────────────────────────────
+const usd = value => `US$ ${Number(value || 0).toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`;
+const AI_STATUS = { open: 'Aberta', booked: 'Com reserva', blocked: 'Bloqueada' };
+const aiPlace = row => [row.city, row.country].filter(Boolean).join(', ') || '—';
+
+async function aiView(params, ctx) {
+  setTitle('Compra com IA', `<button class="btn-sm" id="refresh" type="button">${icon('refresh', 14)} Actualizar</button>`);
+  $('#refresh').onclick = route;
+  const data = await api('/api/admin/ai');
+  if (stale(ctx)) return;
+  const { today, week, month } = data.periods;
+  const limits = data.limits || {};
+  const periodRow = (label, p) => `<tr><td><strong>${label}</strong></td><td class="num">${fmtNumber(p.conversations)}</td><td class="num">${fmtNumber(p.messages)}</td><td class="num">${fmtNumber(p.searches)}<small>${fmtNumber(p.calendar)} no calendário</small></td><td class="num">${fmtNumber(p.tokens)}</td><td class="num">${usd(p.costUsd)}</td><td class="num">${fmtNumber(p.bookings)}<small>${fmtNumber(p.paid)} pagas</small></td><td class="num">${formatKz(p.revenueAoa)}</td></tr>`;
+  view().innerHTML = `${data.enabled ? '' : `<div class="notice">${icon('info', 18)}<div>A compra com IA está desligada: falta a variável <b>OPENROUTER_API_KEY</b> no ambiente. O botão não aparece no site.</div></div>`}
+    <div class="kpi-grid">
+      ${kpi('message', 'Conversas hoje', fmtNumber(today.conversations), `${plural(today.messages, 'mensagem', 'mensagens')} de clientes`)}
+      ${kpi('coins', 'Custo hoje', usd(today.costUsd), `Limite diário ${usd(limits.dailyUsd)}`)}
+      ${kpi('ticket', 'Compras pela IA', fmtNumber(month.bookings), `${fmtNumber(month.paid)} pagas em 30 dias`, '', month.paid ? 'good' : '')}
+      ${kpi('wallet', 'Receita pela IA', formatKz(month.revenueAoa), 'Compras pagas em 30 dias')}</div>
+    <div class="admin-card"><h2>${hIcon('activity')} Uso e custo</h2><p>Modelo <b>${esc(data.model)}</b> no OpenRouter. As pesquisas contam as que gastam crédito no fornecedor de voos (o calendário de preços é partilhado).</p>
+      ${table('<th>Período</th><th class="num">Conversas</th><th class="num">Mensagens</th><th class="num">Pesquisas</th><th class="num">Tokens</th><th class="num">Custo</th><th class="num">Compras</th><th class="num">Receita</th>', [periodRow('Hoje', today), periodRow('7 dias', week), periodRow('30 dias', month)].join(''), '')}</div>
+    <div class="admin-card"><h2>${hIcon('list')} Conversas recentes</h2><p>Toca numa conversa para ler o que o cliente e a assistente disseram.</p>
+      ${table('<th>Quando</th><th>Cliente</th><th class="num">Mensagens</th><th class="num">Pesquisas</th><th class="num">Custo</th><th>Compra</th><th>Estado</th>', data.conversations.map(row => `<tr class="clickable" data-ai="${esc(row.id)}">
+        <td>${esc(formatDateTime(row.created_at))}<small data-ago="${esc(row.updated_at)}">${esc(ago(row.updated_at))}</small></td>
+        <td>${row.customer ? `${esc(row.customer.name || 'Cliente')}<small>${esc(formatPhone(row.customer.phone))}</small>` : `<span class="muted">Visitante</span><small>${esc(aiPlace(row))}</small>`}</td>
+        <td class="num">${fmtNumber(row.user_messages)}</td><td class="num">${fmtNumber(row.provider_searches)}<small>${fmtNumber(row.calendar_lookups)} calendário</small></td>
+        <td class="num">${usd(row.cost_usd)}</td>
+        <td>${row.booking ? `<a class="link-btn" href="#booking/${encodeURIComponent(row.booking.reference)}">${esc(row.booking.reference)}</a><small>${esc(STATUS[row.booking.status] || row.booking.status)}</small>` : '—'}</td>
+        <td>${esc(AI_STATUS[row.status] || row.status)}${row.last_error ? `<small class="no-dot">${esc(row.last_error)}</small>` : ''}</td></tr>`).join(''), 'Ainda não há conversas.')}</div>
+    <div class="admin-card"><h2>${hIcon('shield')} Protecção contra abuso e custo</h2><ol class="formula">
+      <li><b>Por conversa</b><span>${fmtNumber(limits.userMessages)} mensagens, ${fmtNumber(limits.searches)} pesquisas de voos e ${fmtNumber(limits.calendar)} consultas ao calendário. Mensagens até ${fmtNumber(limits.messageChars)} caracteres.</span></li>
+      <li><b>Por visitante e dia</b><span>${fmtNumber(limits.conversationsPerVisitor)} conversas e ${fmtNumber(limits.messagesPerVisitor)} mensagens.</span></li>
+      <li><b>Por dia, no total</b><span>${usd(limits.dailyUsd)} de custo do modelo (AI_DAILY_USD) e ${fmtNumber(limits.dailySearches)} pesquisas (AI_DAILY_SEARCHES). Ao chegar ao limite, a assistente manda o cliente para o WhatsApp.</span></li>
+      <li><b>Preços</b><span>A assistente não escreve preços próprios: vêm só da pesquisa e do calendário, com o câmbio e a taxa DOT do dia. Os 3 dias antes e depois saem do calendário, sem pesquisas extra.</span></li></ol></div>`;
+  view().querySelectorAll('tr[data-ai]').forEach(row => {
+    row.onclick = event => {
+      if (event.target.closest('a')) return;
+      location.hash = `#ai/${row.dataset.ai}`;
+    };
+  });
+}
+
+async function aiConversationView(id, ctx) {
+  setTitle('Conversa com a IA', `<a class="btn-sm" href="#ai">${icon('arrowLeft', 14)} IA</a>`);
+  const data = await api(`/api/admin/ai/${encodeURIComponent(id)}`);
+  if (stale(ctx)) return;
+  const c = data.conversation;
+  view().innerHTML = `<div class="admin-card"><div class="detail-head"><div><h2>${esc(AI_STATUS[c.status] || c.status)} ${c.booking ? `<a class="flag ai-flag" href="#booking/${encodeURIComponent(c.booking.reference)}">${icon('ticket', 14)} ${esc(c.booking.reference)}</a>` : ''}</h2>
+      <p>Iniciada em ${esc(formatDateTime(c.created_at))} · ${c.customer ? `${esc(c.customer.name || 'Cliente')} · ${esc(formatPhone(c.customer.phone))}` : `Visitante · ${esc(aiPlace(c))}`}</p>
+      <p>${plural(c.user_messages, 'mensagem', 'mensagens')} · ${plural(c.provider_searches, 'pesquisa', 'pesquisas')} · ${fmtNumber(Number(c.tokens_in) + Number(c.tokens_out))} tokens · ${usd(c.cost_usd)} · ${esc(c.model || '')}</p></div></div></div>
+    <div class="admin-card"><h2>${hIcon('message')} Conversa</h2><div class="ai-transcript">${data.transcript.map(m => m.role === 'tool'
+      ? `<div class="ai-t tool">${icon('settings', 12)} ${esc(m.text)}</div>`
+      : `<div class="ai-t ${m.role}"><p>${esc(m.text).replace(/\n/g, '<br>')}</p></div>`).join('') || '<p class="muted">Sem mensagens.</p>'}</div></div>`;
+}
+
 // ── SMS ──────────────────────────────────────────────────────────────────────
 async function smsView(params, ctx) {
   const category = params.get('category') || '';
@@ -1263,6 +1321,7 @@ async function systemView(params, ctx) {
         row(env.search, env.searchProvider || 'SerpApi', env.searchProvider === 'SearchApi' ? 'SEARCHAPI_KEY' : 'SERPAPI_KEY', env.searchProvider === 'SearchApi' ? 'Pesquisa de voos e calendário de preços (Google Flights). FLIGHTS_PROVIDER=serpapi volta à SerpApi' : 'Pesquisa de voos e calendário de preços (Google Flights)'),
         row(env.sms, 'Nsangu', 'NSANGU_API_KEY', 'SMS de códigos e avisos'),
         row(env.email, 'Resend', 'RESEND_API_KEY (RESEND_FROM, ADMIN_EMAIL opcionais)', 'E-mail da compra ao cliente (com a factura) e à equipa'),
+        row(env.ai, 'OpenRouter', 'OPENROUTER_API_KEY (AI_MODEL, AI_DAILY_USD, AI_DAILY_SEARCHES opcionais)', env.aiModel ? `Compra com IA · modelo ${env.aiModel}` : 'Compra com IA (chat do site)'),
         row(env.payments, 'Wiza', 'WIPAY_CLIENT_ID, WIPAY_CLIENT_SECRET, WIPAY_WEBHOOK_SECRET', 'Multicaixa Express e referência'),
         row(env.invoices, 'Vero', 'VERO_API_KEY, VERO_ORG_ID', env.invoicesSandbox ? 'Chave de teste: as facturas não chegam à AGT' : 'Factura-recibo certificada'),
         row(env.auth, 'Sessões e OTP', 'AUTH_SECRET', 'Assina códigos e sessões'),

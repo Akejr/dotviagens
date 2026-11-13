@@ -1,5 +1,10 @@
 DOT VIAGENS — DOCUMENTAÇÃO DO SISTEMA
-Revisão: 13 de Novembro de 2026 (12.ª) — avisos de preço sem limite de SMS,
+Revisão: 13 de Novembro de 2026 (13.ª) — compra com IA: botão "Comprar com
+IA" no cabeçalho e botão flutuante à esquerda, chat que pesquisa, compara os
+3 dias antes e depois pelo calendário, recolhe os passageiros, confirma o
+telemóvel e cria a reserva (secção 10B); secção IA no painel e etiqueta
+"Feito pela IA" nas compras (12).
+12.ª revisão (13/11/2026): avisos de preço sem limite de SMS,
 botão "Consultar todos os voos" no painel e avisos com a data passada
 apagados (secção 9A); dia sem voos sugere o dia mais próximo com voos (4A);
 sessão do admin de 400 dias, renovada ao abrir o painel (9).
@@ -716,6 +721,52 @@ linha em email_messages: nunca sai duas vezes. Uma falha fica registada e
 nunca muda a venda. O painel mostra os e-mails de cada reserva e a Resend nas
 Integrações. Vendas registadas à mão (imported) não recebem e-mail.
 
+10B. COMPRA COM IA (CHAT)
+Ficheiros: server/ai.mjs (rotas, ferramentas, limites), public/ai-chat.js e
+public/ai-chat.css (botões e painel). Modelo pelo OpenRouter
+(OPENROUTER_API_KEY; AI_MODEL muda o modelo, por defeito
+google/gemini-2.5-flash). Sem a chave, /api/ai/status diz enabled false e os
+botões não aparecem.
+Botões: "Comprar com IA" no cabeçalho (computador; escondido até 760 px) e
+um botão laranja flutuante no canto inferior esquerdo (o do WhatsApp fica à
+direita). 6 segundos depois de abrir a página, uma vez por visita, o botão
+mostra "Compra as tuas passagens com IA" durante 9 segundos; depois fica só
+o ícone. No telemóvel o painel abre como folha de baixo para cima. A conversa
+fica no sessionStorage (dot-ai-chat): muda de página sem se perder. ?ia=1
+abre o chat. Está na home, resultados, compra, Minhas viagens e no blog.
+Fluxo: POST /api/ai/chat {token, message} -> {token, reply: {text, cards}}.
+O servidor chama o modelo com as ferramentas e executa-as com as próprias
+rotas do site (mesma validação, cache, registo e limites):
+1. find_place: código de cidade, aeroporto ou país (cidades com vários
+   aeroportos e países inteiros como na pesquisa).
+2. price_calendar: preços indicativos dos 3 dias antes e 3 depois da ida
+   (calendário partilhado 6 h, sem pesquisas extra). Cartão de datas com o
+   dia pedido e o mais barato; tocar num dia pede os voos desse dia.
+3. search_flights: 1 pesquisa real só do dia escolhido (kind ai nos
+   registos). Cartão com até 6 voos (I1, I2…); "Escolher" envia "Quero o voo
+   I1".
+4. choose_flight: na ida e volta, a ida mostra as voltas (V1…); a volta (ou
+   a ida em só ida) pede a cotação final (/api/checkout/quote) e mostra o
+   cartão do total.
+5. send_phone_code e confirm_phone_code: nome, e-mail e telemóvel; código
+   por SMS (o mesmo OTP do checkout). O cookie de sessão volta ao browser.
+6. save_passengers: dados como no passaporte, validados como no checkout.
+7. create_booking: só com confirmed true depois de o cliente confirmar. Cria
+   a reserva com channel = 'ai'. Manual: cartão com "Enviar para o WhatsApp"
+   (mensagem com a reserva toda, como no checkout). Wiza: "Pagar agora" abre
+   a página da Wiza (Multicaixa Express ou referência).
+O modelo nunca escreve preços próprios: só os das ferramentas. A equipa
+confirma os dados com o cliente antes de emitir o bilhete.
+Abuso e custo (LIMITS em server/ai.mjs): mensagens até 800 caracteres; por
+conversa 40 mensagens, 8 pesquisas de voos e 6 consultas ao calendário; por
+visitante e dia 6 conversas e 80 mensagens; por mensagem até 6 chamadas ao
+modelo, 900 tokens de resposta e 50 s. Por dia, no total: AI_DAILY_USD
+(por defeito 5 dólares de modelo) e AI_DAILY_SEARCHES (por defeito 300). Ao
+chegar a um limite, a resposta manda para o WhatsApp. Uma falha do modelo
+vira mensagem no chat (last_error no painel).
+Conversas na tabela ai_conversations (token só em hash, mensagens, estado,
+contadores, tokens e custo em dólares). As que não têm reserva são apagadas
+ao fim de 90 dias (pg_cron dot-delete-old-ai-conversations).
 11. MINHAS VIAGENS
 /minhas-viagens (botão Minhas viagens do cabeçalho). Cabeçalho e rodapé da
 home, fundo creme e uma só coluna ao centro (até 880 px), sem arte.
@@ -742,6 +793,10 @@ home, fundo creme e uma só coluna ao centro (até 880 px), sem arte.
   certo; abrir e fechar o painel actualizam o endereço sem recarregar.
 
 12. PAINEL DE ADMINISTRAÇÃO (/admin)
+IA (#ai): conversas, mensagens, pesquisas, tokens, custo em dólares, compras
+e receita de hoje, 7 e 30 dias; conversas recentes com o texto de cada uma
+(#ai/<id>) e os limites. Compras feitas no chat têm "Feito pela IA" na lista
+de Compras e na reserva. OpenRouter aparece nas Integrações e no Sistema.
 Entrada por OTP para role admin. O primeiro administrador vem de ADMIN_PHONES;
 outros são promovidos em Utilizadores.
 Tempo real: a cada 3 s o painel consulta GET /api/admin/live (função
@@ -883,7 +938,10 @@ Migrações (aplicar por ordem, uma vez, pelo MCP do Supabase ou no SQL Editor):
    price_alerts.last_alert_kz e last_alert_at (avisos sem limite de SMS) e o
    pg_cron dot-delete-past-price-alerts (apaga avisos com a ida passada) no
    lugar de dot-expire-price-alerts. Aplicada a 13/11/2026.
-As nove estão aplicadas no projecto ycbmqytyfdkrpxvjcblk (a 6.ª e a 7.ª a
+10. supabase/migrations/20261113192907_dot_viagens_ai_chat.sql:
+   bookings.channel ('site' ou 'ai'), a tabela ai_conversations (secção 10B)
+   e o pg_cron dot-delete-old-ai-conversations. Aplicada a 13/11/2026.
+As dez estão aplicadas no projecto ycbmqytyfdkrpxvjcblk (a 6.ª e a 7.ª a
 10/11/2026).
 Dados de teste apagados a 8/11/2026 (reservas, passageiros, eventos de
 pagamento, SMS, pesquisas, auditoria e códigos OTP; booking_ref_seq voltou a
@@ -921,6 +979,7 @@ public/services.js: transporte da pesquisa.
 public/api.js, icons.js, otp-widget.js, countries.js: módulos partilhados.
 public/compra.html, compra.js, checkout.css: compra.
 public/whatsapp.js: mensagem e ligação do WhatsApp (pagamento manual).
+public/ai-chat.js, public/ai-chat.css: botões e painel da compra com IA.
 public/assets/payments/: logótipos das formas de pagamento.
 public/blog/index.html e public/blog/<slug>.html, blog.css, blog.js: blog
 (GERADOS; não editar à mão). Os textos estão em content/blog/articles.mjs;
@@ -933,6 +992,7 @@ icon-maskable-512.png: SEO e ícones (secção 17A).
 public/minhas-viagens.html, minhas-viagens.js, trips.css: área do cliente.
 public/admin.html, admin.js, admin.css: painel (motor de tempo real em admin.js).
 server/router.mjs: rotas /api e registo das pesquisas.
+server/ai.mjs: compra com IA (OpenRouter, ferramentas, limites, painel IA).
 server/http.mjs, crypto.mjs, phone.mjs: utilitários.
 server/flights.mjs: pesquisa, validação e cache. server/airport-codes.mjs:
 aeroportos aceites e países com o id do Google (GERADO, secção 3).
@@ -979,7 +1039,8 @@ corepack pnpm build
 Variáveis do Worker (em desenvolvimento no ficheiro .dev.vars, fora do Git):
 SEARCHAPI_KEY · SERPAPI_KEY (reserva) · FLIGHTS_PROVIDER (opcional: serpapi
 para voltar à SerpApi) · SUPABASE_URL · SUPABASE_SECRET_KEY · NSANGU_API_KEY ·
-RESEND_API_KEY · RESEND_FROM (opcional) · ADMIN_EMAIL (opcional, e-mail da
+OPENROUTER_API_KEY · AI_MODEL, AI_DAILY_USD, AI_DAILY_SEARCHES (opcionais,
+compra com IA, secção 10B) · RESEND_API_KEY · RESEND_FROM (opcional) · ADMIN_EMAIL (opcional, e-mail da
 equipa que recebe as compras; por defeito dotangola@gmail.com) ·
 WIPAY_BASE_URL · WIPAY_CLIENT_ID · WIPAY_CLIENT_SECRET · WIPAY_WEBHOOK_SECRET ·
 VERO_API_KEY · VERO_ORG_ID · AUTH_SECRET · OFFER_SECRET · CRON_SECRET ·

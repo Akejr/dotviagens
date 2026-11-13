@@ -246,6 +246,7 @@ export async function createBooking(request, env, ctx, deps) {
   const [booking] = await store.insert('bookings', {
     customer_id: session.customer.id,
     status: 'pending_payment',
+    channel: deps.channel === 'ai' ? 'ai' : 'site',
     contact_name: contactName,
     contact_phone: session.customer.phone,
     contact_email: contactEmail,

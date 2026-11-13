@@ -13,6 +13,7 @@ import { sharedFlight, shareFlight, pausedUntil, pauseProvider, pauseMessage } f
 import { createAlert, checkAlerts, listAlerts, alertAction, checkAllAlerts } from './alerts.mjs';
 
 import * as admin from './admin.mjs';
+import { aiStatus, aiChat, adminAi, adminAiConversation } from './ai.mjs';
 
 // Daily-salted visitor hash: counts unique visitors without storing IPs.
 async function visitorOf(env, request) {
@@ -135,6 +136,8 @@ const routes = [
   ['GET', '/api/auth/me', me],
   ['POST', '/api/auth/logout', logout],
   ['POST', '/api/alerts', createAlert],
+  ['GET', '/api/ai/status', aiStatus],
+  ['POST', '/api/ai/chat', (request, env, ctx, deps) => aiChat(request, env, ctx, { ...deps, search, calendar, ctx, visitor: r => visitorOf(env, r), country: countryOf, city: cityOf })],
   ['POST', '/api/checkout/quote', quote],
   ['POST', '/api/bookings', createBooking],
   ['GET', '/api/bookings', listMyBookings],
@@ -165,6 +168,8 @@ const routes = [
   ['POST', `/api/admin/sms/(${UUID})/refresh`, admin.refreshSms],
   ['GET', '/api/admin/audit', admin.listAudit],
   ['POST', '/api/admin/sweep', admin.adminSweep],
+  ['GET', '/api/admin/ai', adminAi],
+  ['GET', `/api/admin/ai/(${UUID})`, adminAiConversation],
 ].map(([method, path, handler]) => [method, new RegExp(`^${path}$`), handler]);
 
 export async function handleApi(request, env, ctx, deps = {}) {
