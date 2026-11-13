@@ -35,8 +35,14 @@ const save = () => {
   }
 };
 
-// Text from the model: escaped, **bold** and line breaks.
-const richText = text => esc(text).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
+// Text from the model: escaped, **bold** (orange in the CSS), prices always bold, line breaks.
+const PRICE = /(\d{1,3}(?:[ \u00a0.]\d{3})+(?:,\d+)?\s?Kz)/g;
+const richText = text => esc(text)
+  .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+  .split(/(<strong>.*?<\/strong>)/)
+  .map(part => (part.startsWith('<strong>') ? part : part.replace(PRICE, '<strong>$1</strong>')))
+  .join('')
+  .replace(/\n/g, '<br>');
 
 function flightsCard(card) {
   return `<div class="ai-card"><p class="ai-card-title">${esc(card.title || 'Voos')}</p>${card.items.map(f => `
@@ -157,9 +163,12 @@ async function send(text) {
   }
 }
 
+// Grows with the text up to 120 px (+2 for the borders: the site uses border-box), scroll only past it.
 function resize() {
   input.style.height = 'auto';
-  input.style.height = `${Math.min(input.scrollHeight, 120)}px`;
+  const full = input.scrollHeight + 2;
+  input.style.height = `${Math.min(full, 120)}px`;
+  input.style.overflowY = full > 120 ? 'auto' : 'hidden';
 }
 
 function restart() {
@@ -177,12 +186,18 @@ function build() {
   panel.hidden = true;
   panel.innerHTML = `
     <header class="ai-head"><span class="ai-avatar">${icon('sparkles', 20)}</span><div><strong>Assistente DOT</strong><small>Compra as tuas passagens aqui no chat</small></div>
+      <button type="button" class="ai-icon-btn ai-expand" data-expand aria-label="Expandir" title="Expandir">${icon('expand', 18)}</button>
       <button type="button" class="ai-icon-btn" data-restart aria-label="Nova conversa" title="Nova conversa">${icon('refresh', 18)}</button>
       <button type="button" class="ai-icon-btn" data-close aria-label="Fechar">${icon('x', 20)}</button></header>
     <div class="ai-list" aria-live="polite"></div>
     <form class="ai-form"><textarea rows="1" maxlength="800" placeholder="Para onde queres viajar?" aria-label="Mensagem"></textarea><button type="submit" aria-label="Enviar">${icon('send', 18)}</button></form>
     <p class="ai-foot">A assistente pode errar: a equipa DOT confirma os dados antes de emitir o bilhete.</p>`;
-  document.body.append(panel);
+  backdrop = document.createElement('div');
+  backdrop.className = 'ai-backdrop';
+  backdrop.hidden = true;
+  backdrop.addEventListener('click', () => setExpanded(false));
+  document.body.append(backdrop, panel);
+  panel.querySelector('[data-expand]').addEventListener('click', () => setExpanded(!panel.classList.contains('expanded')));
   list = panel.querySelector('.ai-list');
   input = panel.querySelector('textarea');
   sendButton = panel.querySelector('.ai-form button');
@@ -209,14 +224,27 @@ function build() {
 }
 
 let float;
+let backdrop;
+// Expanded: bigger, in the centre of the screen, with the page behind blurred.
+function setExpanded(on) {
+  panel.classList.toggle('expanded', on);
+  backdrop.hidden = !on;
+  const button = panel.querySelector('[data-expand]');
+  button.innerHTML = icon(on ? 'shrink' : 'expand', 18);
+  button.setAttribute('aria-label', on ? 'Reduzir' : 'Expandir');
+  button.title = on ? 'Reduzir' : 'Expandir';
+  list.scrollTop = list.scrollHeight;
+}
 function open() {
   if (!panel) build();
   panel.hidden = false;
   document.body.classList.add('ai-open');
   render();
+  resize();
   if (matchMedia('(min-width: 761px)').matches) input.focus({ preventScroll: true });
 }
 function close() {
+  setExpanded(false);
   panel.hidden = true;
   document.body.classList.remove('ai-open');
 }

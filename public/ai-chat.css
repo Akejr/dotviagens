@@ -100,3 +100,16 @@ button.ai-day:hover{border-color:#f7b48b;background:#fff8f2}
   .ai-card{min-width:0}
 }
 @media print{.ai-float,.ai-panel,.ai-header-btn{display:none}}
+/* Important words from the model and prices: orange bold. */
+.ai-msg.bot>p strong{color:#e2601c;font-weight:700}
+.ai-form textarea{overflow-y:hidden}
+/* Expanded: centre of the screen, page behind blurred. */
+.ai-backdrop{position:fixed;inset:0;z-index:69;background:#26282033;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);animation:ai-fade .2s ease}
+.ai-backdrop[hidden]{display:none}
+@keyframes ai-fade{from{opacity:0}}
+.ai-panel.expanded{inset:24px;margin:auto;width:min(780px,calc(100vw - 48px));height:min(860px,calc(100vh - 48px));border-radius:24px;box-shadow:0 30px 80px #2b241a4d,0 0 0 1px #ece6dd}
+.ai-panel.expanded .ai-list{padding:22px 26px 10px;gap:12px}
+.ai-panel.expanded .ai-msg{max-width:78%}
+.ai-panel.expanded .ai-msg p{font-size:15px}
+.ai-panel.expanded .ai-form{padding:12px 22px 8px}
+@media(max-width:760px){.ai-expand{display:none}}
