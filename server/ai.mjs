@@ -109,8 +109,8 @@ const tripSchema = {
 };
 export const TOOLS = [
   { name: 'find_place', description: 'Procura o código de uma cidade, aeroporto ou país. Usa sempre antes de pesquisar voos.', parameters: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } },
-  { name: 'price_calendar', description: 'Preços indicativos dos 3 dias antes e 3 dias depois da data de ida (calendário, quase sem custo). Usa antes de search_flights para ver se há um dia mais barato.', parameters: { type: 'object', properties: tripSchema, required: ['origin', 'destination', 'departureDate', 'passengers', 'cabin'] } },
-  { name: 'search_flights', description: 'Pesquisa os voos reais de um dia (preço exacto, gasta 1 pesquisa). Mostra ao cliente os voos num cartão.', parameters: { type: 'object', properties: tripSchema, required: ['origin', 'destination', 'departureDate', 'passengers', 'cabin'] } },
+  { name: 'price_calendar', description: 'Usa logo que tiveres a viagem completa. Devolve os voos reais do dia pedido (preço exacto, em cartão) e os preços indicativos dos 3 dias antes e 3 dias depois (calendário).', parameters: { type: 'object', properties: tripSchema, required: ['origin', 'destination', 'departureDate', 'passengers', 'cabin'] } },
+  { name: 'search_flights', description: 'Pesquisa os voos reais de OUTRO dia que o cliente escolheu depois de ver o calendário (preço exacto, gasta 1 pesquisa). Mostra os voos num cartão.', parameters: { type: 'object', properties: tripSchema, required: ['origin', 'destination', 'departureDate', 'passengers', 'cabin'] } },
   { name: 'choose_flight', description: 'Escolhe um voo pelo código do cartão (I1, I2... na ida; V1, V2... na volta). Na ida e volta, escolher a ida mostra as voltas; escolher a volta prepara o preço final.', parameters: { type: 'object', properties: { ref: { type: 'string' } }, required: ['ref'] } },
   { name: 'send_phone_code', description: 'Envia o código por SMS para confirmar o telemóvel do cliente. Pede antes o nome completo e o e-mail.', parameters: { type: 'object', properties: { phone: { type: 'string', description: 'Telemóvel angolano, 9 dígitos começados por 9.' }, name: { type: 'string' }, email: { type: 'string' } }, required: ['phone', 'name', 'email'] } },
   { name: 'confirm_phone_code', description: 'Confirma o código de 6 dígitos que o cliente recebeu por SMS.', parameters: { type: 'object', properties: { code: { type: 'string' } }, required: ['code'] } },
@@ -155,7 +155,7 @@ function systemPrompt(state) {
     'Passos:',
     '1. Pergunta origem, destino, datas, se é só ida ou ida e volta, quantos adultos (12+) e crianças (2 a 11 anos) e a classe (Económica, Económica premium, Executiva ou Primeira). Se o cliente der tudo de uma vez, não perguntes de novo. Por defeito a origem é Luanda (NBJ) se o cliente não disser.',
     '2. Usa find_place para os códigos. Se houver dúvida (cidade com vários aeroportos), usa o código da cidade inteira.',
-    '3. Com a data, chama price_calendar e depois search_flights para o dia pedido. Se o calendário mostrar um dia mais barato nos 3 dias antes ou depois, diz algo como: "O preço ficou em X, mas encontrei um valor melhor no dia D (cerca de Y, indicativo). Queres ver os voos desse dia?". Se o cliente quiser, chama search_flights para esse dia.',
+    '3. Com a viagem completa, chama price_calendar: traz os voos reais do dia pedido (cartão I1, I2...) e os preços indicativos dos 3 dias antes e depois. Diz o preço do voo mais barato do dia pedido (cheapestExact) e, se o calendário mostrar um dia mais barato, algo como: "O preço ficou em X, mas encontrei um valor melhor no dia D (cerca de Y, indicativo). Queres ver os voos desse dia?". Se o cliente quiser outro dia, chama search_flights para esse dia. Se não, pede para escolher um voo do cartão.',
     '4. Quando o cliente escolher um voo, chama choose_flight. Na ida e volta, depois escolhe a volta.',
     '5. Com o preço final, pede o nome completo e o e-mail, depois o telemóvel e chama send_phone_code; pede o código de 6 dígitos e chama confirm_phone_code.',
     '6. Pede os dados de cada passageiro como no passaporte: tratamento (Sr. ou Sra.), nome(s) próprio(s), apelido(s), data de nascimento, nacionalidade, número do passaporte, país emissor e validade. Depois chama save_passengers.',
@@ -237,6 +237,27 @@ const compactFlights = card => card.items.map(item => ({
   price: kzText(item.priceKz),
 }));
 
+// Real search of one day (1 provider search): flights card I1, I2... and the state for choose_flight.
+async function searchDay(ctx, trip, prices) {
+  const { env, deps, request, state, conversation, cards } = ctx;
+  if (conversation.provider_searches >= LIMITS.searches) return { error: 'Limite de pesquisas desta conversa atingido. Sugere continuar no site ou no WhatsApp.' };
+  conversation.provider_searches += 1;
+  const body = { ...trip, children: trip.children || undefined, stops: 0, kind: 'ai' };
+  const result = await call(deps.search, inner(request, '/api/flights/search', body), env, deps.ctx, deps);
+  if (!result.ok) return { error: result.data?.error || 'A pesquisa falhou.' };
+  const offers = [...result.data.offers].sort((a, b) => a.amount - b.amount).slice(0, 6);
+  Object.assign(state, { trip, search: { data: { ...result.data, offers }, at: Date.now() }, outbound: null, returns: null, inbound: null, quote: null });
+  if (!offers.length) return { date: trip.departureDate, flights: [], note: 'Não há voos neste dia. Propõe outro dia ou o WhatsApp da DOT.' };
+  const card = flightCard(offers, prices, 'I', trip.returnDate ? `Voos de ${trip.departureDate.split('-').reverse().join('/')}: escolhe a ida (preço da ida e volta)` : `Voos de ${trip.departureDate.split('-').reverse().join('/')}`);
+  cards.push(card);
+  return {
+    date: trip.departureDate,
+    cheapestExact: kzText(card.items[0].priceKz),
+    flights: compactFlights(card),
+    note: `${trip.returnDate ? 'Preços da viagem completa de ida e volta. Depois da ida, mostram-se as voltas.' : 'Preço total só ida para todos os passageiros.'} Os voos já estão num cartão no ecrã: o cliente toca em Escolher ou diz o código (I1, I2...).`,
+  };
+}
+
 async function runTool(name, args, ctx) {
   const { env, deps, request, state, conversation, cards, jar } = ctx;
   const prices = await pricing(env, deps);
@@ -269,7 +290,9 @@ async function runTool(name, args, ctx) {
     const priced = list.filter(d => d.priceKz);
     const cheapest = priced.sort((a, b) => a.priceKz - b.priceKz)[0] || null;
     cards.push({ type: 'dates', title: `Preços indicativos ${nights ? `(ida e volta de ~${tripDays} dias)` : '(só ida)'}`, chosen: trip.departureDate, cheapest: cheapest?.date || null, items: list });
+    const requestedDay = await searchDay(ctx, trip, prices);
     return {
+      requestedDayFlights: requestedDay,
       indicative: true,
       days: list.map(d => ({ date: d.date, price: d.priceKz ? kzText(d.priceKz) : 'sem preço' })),
       chosenDay: { date: trip.departureDate, price: found.has(trip.departureDate) ? kzText(kzOf(found.get(trip.departureDate), prices) * travellers) : 'sem preço' },
@@ -280,17 +303,7 @@ async function runTool(name, args, ctx) {
   if (name === 'search_flights') {
     const { trip, error } = tripOf(args);
     if (error) return { error };
-    if (conversation.provider_searches >= LIMITS.searches) return { error: 'Limite de pesquisas desta conversa atingido. Sugere continuar no site ou no WhatsApp.' };
-    conversation.provider_searches += 1;
-    const body = { ...trip, children: trip.children || undefined, stops: 0, kind: 'ai' };
-    const result = await call(deps.search, inner(request, '/api/flights/search', body), env, deps.ctx, deps);
-    if (!result.ok) return { error: result.data?.error || 'A pesquisa falhou.' };
-    const offers = [...result.data.offers].sort((a, b) => a.amount - b.amount).slice(0, 6);
-    Object.assign(state, { trip, search: { data: { ...result.data, offers }, at: Date.now() }, outbound: null, returns: null, inbound: null, quote: null });
-    if (!offers.length) return { flights: [], note: 'Não há voos neste dia. Propõe outro dia (usa price_calendar) ou o WhatsApp da DOT.' };
-    const card = flightCard(offers, prices, 'I', trip.returnDate ? 'Escolhe a ida (preço da ida e volta)' : 'Voos encontrados');
-    cards.push(card);
-    return { flights: compactFlights(card), note: trip.returnDate ? 'Preços da viagem completa. Depois da ida, mostram-se as voltas.' : 'Preço total só ida para todos os passageiros.' };
+    return searchDay(ctx, trip, prices);
   }
 
   if (name === 'choose_flight') {
@@ -397,7 +410,7 @@ async function runTool(name, args, ctx) {
       reference: result.data.reference,
       total: kzText(result.data.amountAoa),
       payment: body.paymentMethod === 'manual'
-        ? 'O cliente toca em "Enviar para o WhatsApp" no cartão: a mensagem já leva a reserva. A equipa confirma o pagamento à mão (até 72 horas).'
+        ? 'Diz ao cliente para tocar agora no botão "Enviar para o WhatsApp" no cartão abaixo: a mensagem já leva a reserva e é assim que combina o pagamento com a equipa (a reserva fica 72 horas à espera). Não digas que a equipa vai contactar primeiro.'
         : result.data.hostedUrl ? 'O cliente toca em "Pagar" no cartão e autoriza no Multicaixa Express ou paga a referência.' : `O pagamento não abriu: ${result.data.paymentError || 'tenta de novo no cartão'}.`,
     };
   }
