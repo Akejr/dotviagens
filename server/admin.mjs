@@ -162,7 +162,36 @@ export async function searches(request, env, ctx, deps) {
     url.searchParams.get('stats') === '1' ? store.rpc('admin_search_stats', { p_days: 7 }) : null,
   ]);
   const { markupBp } = await currentMarkup(env, deps);
-  return json({ journeys: journeys || [], stats, pricing: { markupBp } });
+  return json({ journeys: await withOtherKinds(store, journeys || []), stats, pricing: { markupBp } });
+}
+
+// admin_search_journeys prices a journey only from the site's own searches (kinds view, prefetch,
+// return). Searches of the AI chat (ai), of the price-alert checks (alerts) and of another class
+// (cabin) were shown as "Sem voos" although they found flights: their lowest price and kind are added here.
+async function withOtherKinds(store, journeys) {
+  const open = journeys.filter(j => j.outbound_min_brl == null && j.view_min_brl == null && j.return_min_brl == null);
+  if (!open.length) return journeys;
+  const ids = open.map(j => j.key.match(/^id:(\d{1,18})$/)?.[1]).filter(Boolean);
+  const keys = open.map(j => j.key).filter(key => !key.startsWith('id:') && JOURNEY_KEY.test(key));
+  const filters = [ids.length ? `id.in.(${ids.join(',')})` : null, keys.length ? `journey_key.in.(${keys.map(key => `"${key}"`).join(',')})` : null].filter(Boolean);
+  let rows = [];
+  try {
+    rows = await store.select('search_logs', { select: 'id,journey_key,kind,status,min_price_brl', or: `(${filters.join(',')})`, limit: 1000 });
+  } catch {
+    return journeys;
+  }
+  const byKey = new Map();
+  for (const row of rows) {
+    const key = row.journey_key || `id:${row.id}`;
+    const info = byKey.get(key) || { min: null, kind: row.kind };
+    if (row.status === 'ok' && Number.isFinite(Number(row.min_price_brl)) && (info.min == null || Number(row.min_price_brl) < info.min)) info.min = Number(row.min_price_brl);
+    if (!info.kind) info.kind = row.kind;
+    byKey.set(key, info);
+  }
+  return journeys.map(j => {
+    const info = byKey.get(j.key);
+    return info ? { ...j, other_min_brl: info.min, source_kind: info.kind || null } : j;
+  });
 }
 
 const JOURNEY_KEY = /^[A-Za-z0-9|:-]{3,120}$/;

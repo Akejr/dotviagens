@@ -81,12 +81,21 @@ function updateURL(){const p=new URLSearchParams(Object.fromEntries(Object.entri
 // the customer picks: neighbour days are no longer searched in the background.
 const calendarState=new Map();
 function calendarQuery(){const base={origin:query.origin,destination:query.destination,passengers:query.passengers,children:query.children||0,cabin:query.cabin};if(!query.returnDate)return {...base,type:'oneway'};if(stage==='return')return {...base,type:'return',fixedOutbound:selected};return {...base,type:'return',tripDays:standardTripDays(Math.min(60,Math.max(1,tripLength())))}}
-const calendarKey=(cq,month)=>JSON.stringify([cq.origin,cq.destination,cq.cabin,cq.type,cq.fixedOutbound||null,cq.tripDays||null,month]);
-function loadMonth(cq,month,after=()=>{}){const k=calendarKey(cq,month);if(calendarState.has(k))return;calendarState.set(k,'loading');monthPrices(cq,month,partial=>{const now=calendarState.get(k);if(now!=='loading'&&!now?.loading)return;partial.loading=true;calendarState.set(k,partial);if(stage!=='summary')renderDates()}).then(map=>calendarState.set(k,map),()=>calendarState.set(k,'error')).finally(()=>{if(stage!=='summary'){renderDates();after()}})}
-function loadCalendar(){if(stage==='summary'||!windowStart)return;const cq=calendarQuery();if(!cq)return;for(const month of new Set(dates().map(d=>d.slice(0,7))))loadMonth(cq,month)}
+// The strip asks only its 5 days, for the exact trip length (1 request of a few seconds); the month
+// calendar (popover, nearest day with flights) keeps the standard trip lengths, shared by every visitor.
+function stripQuery(){const cq=calendarQuery();if(!cq||cq.type!=='return'||cq.fixedOutbound)return cq;return {...cq,tripDays:Math.min(60,Math.max(1,tripLength())),exact:true}}
+const calendarKey=(cq,month)=>JSON.stringify([cq.origin,cq.destination,cq.cabin,cq.type,cq.fixedOutbound||null,cq.tripDays||null,cq.exact?1:0,month]);
+function loadMonth(cq,month,after=()=>{}){const k=calendarKey(cq,month);const now=calendarState.get(k);if(now&&now!=='error')return;if(now==='error'&&(calendarFailures.get(k)||0)>=2)return;calendarState.set(k,'loading');monthPrices(cq,month,partial=>{const now=calendarState.get(k);if(now!=='loading'&&!now?.loading)return;partial.loading=true;calendarState.set(k,partial);if(stage!=='summary')renderDates()}).then(map=>calendarState.set(k,map),()=>{calendarFailures.set(k,(calendarFailures.get(k)||0)+1);calendarState.set(k,'error')}).finally(()=>{if(stage!=='summary'){renderDates();after()}})}
+// A failed strip range is asked again once, a few seconds later (a slow provider answer).
+const calendarFailures=new Map();
+const rangeOf=()=>{const list=dates();return list.length?{from:list[0],to:list.at(-1)}:null};
+function loadCalendar(){if(stage==='summary'||!windowStart)return;const sq=stripQuery(),range=rangeOf();if(!sq||!range)return;const k=calendarKey(sq,range);if(calendarState.get(k)!=='error')return loadMonth(sq,range);if((calendarFailures.get(k)||0)<2&&!retryTimer)retryTimer=setTimeout(()=>{retryTimer=null;loadMonth(sq,range)},4000)}
+let retryTimer=null;
 // Total for every adult (number), 'loading', 'error' or null when the calendar has no price for the day.
+// The strip's own range first, then a month already loaded by the calendar popover or the no-flights card.
 // A month that arrives in parts is a Map marked .loading until the last part: its missing days still load.
-function calendarPrice(d){const cq=calendarQuery();if(!cq)return null;const state=calendarState.get(calendarKey(cq,d.slice(0,7)));if(!(state instanceof Map))return state||null;const amount=state.get(d)?.amount;return Number.isFinite(amount)?amount*adultsOf(cq):(state.loading?'loading':null)}
+function priceIn(cq,period,d){const state=calendarState.get(calendarKey(cq,period));if(!(state instanceof Map))return state||null;const amount=state.get(d)?.amount;return Number.isFinite(amount)?amount*adultsOf(cq):(state.loading?'loading':null)}
+function calendarPrice(d){const sq=stripQuery();if(!sq)return null;const range=rangeOf();const own=range&&d>=range.from&&d<=range.to?priceIn(sq,range,d):null;if(Number.isFinite(own))return own;const month=priceIn(calendarQuery(),d.slice(0,7),d);return Number.isFinite(month)?month:own??month}
 // A day without flights points to the nearest day that has them (up to 30 days either side, inside
 // the allowed dates): a day already searched with flights (exact price) or a day of the price
 // calendar (indicative). Days already searched without flights are skipped. The calendar of this

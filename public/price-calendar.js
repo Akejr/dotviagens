@@ -65,13 +65,15 @@ export const standardTripDays = days => TRIP_LENGTHS.reduce((best, n) => (Math.a
 // Prices are always asked for 1 adult (one cache for 1 to 4 adults) and multiplied by the travellers
 // (adults and children, at the adult price) when shown: indicative. The final price comes from the
 // flight search, which carries the children. The class is part of the request (economy is the default).
+// `month` is 'YYYY-MM' or a range of days {from, to} (the results date strip: 1 short request).
 const requestBody = (query, month) => {
-  const body = { origin: query.origin, destination: query.destination, passengers: 1, type: query.type, month };
+  const body = { origin: query.origin, destination: query.destination, passengers: 1, type: query.type, ...(typeof month === 'string' ? { month } : { from: month.from, to: month.to }) };
   if (query.cabin && query.cabin !== 'economy') body.cabin = query.cabin;
   if (query.fixedOutbound) body.fixedOutbound = query.fixedOutbound;
   else if (query.type === 'return') body.tripDays = query.tripDays || 7;
   return body;
 };
+
 export const adultsOf = query => Math.min(4, Math.max(1, Number(query?.passengers) || 1)) + Math.min(3, Math.max(0, Number(query?.children) || 0));
 
 export function hasMonth(query, month) {
@@ -116,10 +118,10 @@ function knownPrices(query, month) {
     if (query.fixedOutbound) {
       if (q.departureDate !== query.fixedOutbound) continue;
       date = q.returnDate;
-    } else if (query.type === 'return' && standardTripDays(daysBetweenIso(q.departureDate, q.returnDate)) !== (query.tripDays || 7)) {
+    } else if (query.type === 'return' && (query.exact ? daysBetweenIso(q.departureDate, q.returnDate) : standardTripDays(daysBetweenIso(q.departureDate, q.returnDate))) !== (query.tripDays || 7)) {
       continue;
     }
-    if (!String(date).startsWith(month)) continue;
+    if (typeof month === 'string' ? !String(date).startsWith(month) : !(date >= month.from && date <= month.to)) continue;
     const amount = Math.min(...offers.map(offer => Number(offer.amount)).filter(amount => amount > 0)) / Math.max(1, Number(q.passengers) || 1);
     if (Number.isFinite(amount) && !(found.get(date) <= amount)) found.set(date, amount);
   }
@@ -135,7 +137,8 @@ function withKnown(query, month, prices) {
   return prices;
 }
 
-// Map of 'YYYY-MM-DD' -> { amount (BRL for 1 adult), ... } for one month of one query.
+// Map of 'YYYY-MM-DD' -> { amount (BRL for 1 adult), ... } for one month of one query
+// (or a range of days {from, to}, up to 14).
 // When the server answers with `parts` (slow providers), every part is asked at once and
 // onPartial(map) receives the days found so far as each part arrives.
 export function monthPrices(query, month, onPartial) {
@@ -314,7 +317,7 @@ export function mountCalendar(root, opts) {
     const nextStart = isoOf(new Date(current.getFullYear(), current.getMonth() + 1, 1));
     root.innerHTML = `<div class="picker-heading">${esc(opts.heading)}</div>
       <div class="calendar-nav"><button type="button" class="prev-month" aria-label="Mês anterior" ${previousEnd < min ? 'disabled' : ''}>‹</button><strong>${monthText.format(current)}</strong><button type="button" class="next-month" aria-label="Mês seguinte" ${nextStart > max ? 'disabled' : ''}>›</button></div>
-      <div class="calendar-grid${opts.priceQuery ? ' priced' : ''}">${['S', 'T', 'Q', 'Q', 'S', 'S', 'D'].map(day => `<div class="weekday">${day}</div>`).join('')}${'<span></span>'.repeat(first)}${Array.from({ length: count }, (_, i) => dayButton(new Date(current.getFullYear(), current.getMonth(), i + 1))).join('')}</div>
+      <div class="calendar-grid${opts.priceQuery ? ' priced' : ''}">${['S', 'T', 'Q', 'Q', 'S', 'S', 'D'].map(day => `<div class="weekday">${day}</div>`).join('')}${'<span></span>'.repeat(first)}${Array.from({ length: count }, (_, i) => dayButton(new Date(current.getFullYear(), current.getMonth(), i + 1))).join('')}${'<span class="day-blank" aria-hidden="true"></span>'.repeat(42 - first - count)}</div>
       <div class="calendar-legend" aria-live="polite"></div>
       ${opts.foot ? `<div class="picker-foot">${opts.foot}</div>` : ''}`;
     // Paging through months waits until the customer stops (each new month is a paid search).

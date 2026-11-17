@@ -111,6 +111,21 @@ export const TOOLS = [
   { name: 'find_place', description: 'Procura o código de uma cidade, aeroporto ou país. Usa sempre antes de pesquisar voos.', parameters: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } },
   { name: 'price_calendar', description: 'Usa logo que tiveres a viagem completa. Devolve os voos reais do dia pedido (preço exacto, em cartão) e os preços indicativos dos 3 dias antes e 3 dias depois (calendário).', parameters: { type: 'object', properties: tripSchema, required: ['origin', 'destination', 'departureDate', 'passengers', 'cabin'] } },
   { name: 'search_flights', description: 'Pesquisa os voos reais de OUTRO dia que o cliente escolheu depois de ver o calendário (preço exacto, gasta 1 pesquisa). Mostra os voos num cartão.', parameters: { type: 'object', properties: tripSchema, required: ['origin', 'destination', 'departureDate', 'passengers', 'cabin'] } },
+  {
+    name: 'cheapest_dates',
+    description: 'Quando o cliente quer a data mais barata de um mês, de vários meses ou de um ano (sem dia fixo). Vê o calendário de preços de 1 a 3 meses e mostra num cartão os dias mais baratos (preços indicativos). Não precisa de dia.',
+    parameters: {
+      type: 'object',
+      properties: {
+        origin: tripSchema.origin,
+        destination: tripSchema.destination,
+        months: { type: 'array', items: { type: 'string' }, description: 'Meses AAAA-MM, de 1 a 3 (ex.: ["2027-03"]). Para um ano inteiro, os 3 primeiros meses disponíveis desse ano.' },
+        tripDays: { type: 'integer', description: 'Só em ida e volta: duração da viagem em dias (7 se o cliente não disser). Omitir em só ida.' },
+        ...travellersSchema,
+      },
+      required: ['origin', 'destination', 'months', 'passengers', 'cabin'],
+    },
+  },
   { name: 'choose_flight', description: 'Escolhe um voo pelo código do cartão (I1, I2... na ida; V1, V2... na volta). Na ida e volta, escolher a ida mostra as voltas; escolher a volta prepara o preço final.', parameters: { type: 'object', properties: { ref: { type: 'string' } }, required: ['ref'] } },
   { name: 'send_phone_code', description: 'Envia o código por SMS para confirmar o telemóvel do cliente. Pede antes o nome completo e o e-mail.', parameters: { type: 'object', properties: { phone: { type: 'string', description: 'Telemóvel angolano, 9 dígitos começados por 9.' }, name: { type: 'string' }, email: { type: 'string' } }, required: ['phone', 'name', 'email'] } },
   { name: 'confirm_phone_code', description: 'Confirma o código de 6 dígitos que o cliente recebeu por SMS.', parameters: { type: 'object', properties: { code: { type: 'string' } }, required: ['code'] } },
@@ -145,23 +160,30 @@ export const TOOLS = [
 ].map(fn => ({ type: 'function', function: fn }));
 
 // ── System prompt ────────────────────────────────────────────────────────────
+const WEEKDAY = new Intl.DateTimeFormat('pt-PT', { weekday: 'long', timeZone: 'UTC' });
+const weekdayOf = iso => WEEKDAY.format(new Date(`${iso}T12:00:00Z`));
+// The next 7 days with their weekday, so the model turns "amanhã", "sexta-feira"... into dates itself.
+const nextDays = today => Array.from({ length: 8 }, (_, i) => addDays(today, i)).map((d, i) => `${i === 0 ? 'hoje' : i === 1 ? 'amanhã' : i === 2 ? 'depois de amanhã' : weekdayOf(d)} = ${d}`).join('; ');
+
 function systemPrompt(state) {
   const today = luandaToday();
   return [
     'És a assistente de compras da DOT Viagens, uma agência angolana que vende passagens aéreas pagas em kwanzas.',
-    `Hoje é ${today} (hora de Luanda). Escreve em português de Angola, tratando o cliente por tu, com a grafia de Angola (seleccionar, directo, actual, factura, contacto, telemóvel, Económica). Nunca uses travessões.`,
-    'Respostas curtas: 1 a 3 frases. Uma pergunta de cada vez. Não repitas a lista de voos: os voos e datas aparecem em cartões no ecrã.',
+    `Hoje é ${weekdayOf(today)}, ${today} (hora de Luanda). Próximos dias: ${nextDays(today)}. Escreve em português de Angola, tratando o cliente por tu, com a grafia de Angola (seleccionar, directo, actual, factura, contacto, telemóvel, Económica). Nunca uses travessões.`,
+    'Respostas curtas: 1 a 3 frases. Pergunta só o que falta, numa frase curta, e nunca perguntes o que o cliente já disse. Não repitas a lista de voos: os voos e datas aparecem em cartões no ecrã.',
+    'Datas: tu convertes sempre datas relativas ou incompletas para AAAA-MM-DD com a lista acima (amanhã, depois de amanhã, sexta-feira, próxima semana, "dia 12", "12 de janeiro"; sem ano, a próxima vez que esse dia chega). Nunca peças ao cliente a data em formato AAAA-MM-DD nem a "data completa". Pede uma data só se o cliente não disser nenhuma; "de manhã" ou "à noite" não muda a data (os horários aparecem no cartão).',
     'Destaca em **negrito** só o essencial: preços, datas, a referência da reserva e o que pedes ao cliente (ex.: "diz-me o teu **nome completo** e o teu **e-mail**"). No máximo 3 destaques por mensagem.',
-    'Regras: nunca inventes voos, horários nem preços. Os preços vêm só das ferramentas. price_calendar dá preços indicativos; search_flights dá o preço exacto. Fala só de viagens e da compra na DOT; recusa com simpatia outros assuntos.',
+    'Regras: nunca inventes voos, horários nem preços. Os preços vêm só das ferramentas. price_calendar e cheapest_dates dão preços indicativos; os voos do cartão têm o preço exacto. Fala só de viagens e da compra na DOT; recusa com simpatia outros assuntos.',
     'Passos:',
-    '1. Pergunta origem, destino, datas, se é só ida ou ida e volta, quantos adultos (12+) e crianças (2 a 11 anos) e a classe (Económica, Económica premium, Executiva ou Primeira). Se o cliente der tudo de uma vez, não perguntes de novo. Por defeito a origem é Luanda (NBJ) se o cliente não disser.',
+    '1. Precisas de: origem, destino, data da ida e se é só ida ou ida e volta (com a data da volta). Se o cliente disser só o destino, pergunta "Saindo de **Luanda**?" (confirma sempre a origem, não a assumas). Se faltarem os passageiros ou a classe, pergunta numa só frase curta (ex.: "Quantas pessoas e em que classe? Económica, Executiva ou Primeira."). "1 pessoa" ou "só eu" é 1 adulto. "1ª classe" ou "primeira classe" é Primeira; "1 classe" é ambíguo: confirma. Junta as perguntas que faltam numa frase; nunca faças uma lista de perguntas.',
     '2. Usa find_place para os códigos. Se houver dúvida (cidade com vários aeroportos), usa o código da cidade inteira.',
-    '3. Com a viagem completa, chama price_calendar: traz os voos reais do dia pedido (cartão I1, I2...) e os preços indicativos dos 3 dias antes e depois. Diz o preço do voo mais barato do dia pedido (cheapestExact) e, se o calendário mostrar um dia mais barato, algo como: "O preço ficou em X, mas encontrei um valor melhor no dia D (cerca de Y, indicativo). Queres ver os voos desse dia?". Se o cliente quiser outro dia, chama search_flights para esse dia. Se não, pede para escolher um voo do cartão.',
-    '4. Quando o cliente escolher um voo, chama choose_flight. Na ida e volta, depois escolhe a volta.',
-    '5. Com o preço final, pede o nome completo e o e-mail, depois o telemóvel e chama send_phone_code; pede o código de 6 dígitos e chama confirm_phone_code.',
-    '6. Pede os dados de cada passageiro como no passaporte: tratamento (Sr. ou Sra.), nome(s) próprio(s), apelido(s), data de nascimento, nacionalidade, número do passaporte, país emissor e validade. Depois chama save_passengers.',
-    '7. Pergunta como quer pagar: pagamento manual pelo WhatsApp da DOT, ou Multicaixa Express e referência (página segura da Wiza). Cartões Visa e Mastercard estão indisponíveis. Pergunta se quer factura com NIF (opcional).',
-    '8. Resume a viagem, os passageiros e o total, pede confirmação de que os nomes estão exactamente como no passaporte e chama create_booking com confirmed true.',
+    '3. Se o cliente quer a data mais barata de um mês, de vários meses ou de um ano, sem dia fixo, chama cheapest_dates logo (sem pedir dia): até 3 meses; para um ano inteiro, os 3 primeiros meses disponíveis desse ano, e oferece ver os meses seguintes. Depois de mostrar os dias, pergunta qual quer e chama search_flights para esse dia.',
+    '4. Com um dia definido, chama price_calendar: traz os voos reais do dia pedido (cartão I1, I2...) e os preços indicativos dos 3 dias antes e depois. Diz o preço do voo mais barato do dia pedido (cheapestExact). Fala de outro dia só se a ferramenta devolver cheaperDay (já confirmado mais barato), por exemplo: "O preço ficou em X, mas no dia D está a cerca de Y (indicativo). Queres ver os voos desse dia?". Sem cheaperDay, não sugiras outro dia. Se o cliente quiser outro dia, chama search_flights para esse dia. Se não, pede para escolher um voo do cartão.',
+    '5. Quando o cliente escolher um voo, chama choose_flight. Na ida e volta, depois escolhe a volta.',
+    '6. Com o preço final, pede o nome completo e o e-mail, depois o telemóvel e chama send_phone_code; pede o código de 6 dígitos e chama confirm_phone_code.',
+    '7. Pede os dados de cada passageiro como no passaporte: tratamento (Sr. ou Sra.), nome(s) próprio(s), apelido(s), data de nascimento, nacionalidade, número do passaporte, país emissor e validade. Depois chama save_passengers.',
+    '8. Pergunta como quer pagar: pagamento manual pelo WhatsApp da DOT, ou Multicaixa Express e referência (página segura da Wiza). Cartões Visa e Mastercard estão indisponíveis. Pergunta se quer factura com NIF (opcional).',
+    '9. Resume a viagem, os passageiros e o total, pede confirmação de que os nomes estão exactamente como no passaporte e chama create_booking com confirmed true.',
     'Depois do pagamento confirmado, a equipa DOT emite o bilhete com a companhia e envia o código da reserva por SMS: a emissão não é imediata. Bebés (menos de 2 anos), grupos grandes ou viagens sem voos: sugere falar com a equipa no WhatsApp +244 931 343 433.',
     'Se uma ferramenta devolver erro, explica ao cliente em linguagem simples e propõe o passo seguinte.',
     state?.summary ? `Estado actual da compra: ${state.summary}` : '',
@@ -254,6 +276,7 @@ async function searchDay(ctx, trip, prices) {
   return {
     date: trip.departureDate,
     cheapestExact: kzText(card.items[0].priceKz),
+    cheapestKz: card.items[0].priceKz,
     flights: compactFlights(card),
     note: `${trip.returnDate ? 'Preços da viagem completa de ida e volta. Depois da ida, mostram-se as voltas.' : 'Preço total só ida para todos os passageiros.'} Os voos já estão num cartão no ecrã: o cliente toca em Escolher ou diz o código (I1, I2...).`,
   };
@@ -277,34 +300,76 @@ async function runTool(name, args, ctx) {
     const today = luandaToday();
     const days = Array.from({ length: 7 }, (_, i) => addDays(trip.departureDate, i - 3)).filter(d => d >= today);
     const nights = trip.returnDate ? Math.max(1, shift(trip.departureDate, trip.returnDate)) : null;
-    const STANDARD = [3, 5, 7, 10, 14, 21, 30, 45, 60];
-    const tripDays = nights ? STANDARD.reduce((best, n) => (Math.abs(n - nights) < Math.abs(best - nights) ? n : best), STANDARD[0]) : null;
+    // Only the 7 days around the asked one (1 short calendar request, a few seconds), in parallel with
+    // the real search of the asked day; months took 15-25 s and left no time to answer.
     const found = new Map();
-    for (const month of new Set(days.map(d => d.slice(0, 7)))) {
-      const body = { origin: trip.origin, destination: trip.destination, passengers: 1, type: nights ? 'return' : 'oneway', month, ...(tripDays ? { tripDays } : {}), ...(trip.cabin !== 'economy' ? { cabin: trip.cabin } : {}) };
+    const body = { origin: trip.origin, destination: trip.destination, passengers: 1, type: nights ? 'return' : 'oneway', from: days[0], to: days.at(-1), ...(nights ? { tripDays: Math.min(60, nights) } : {}), ...(trip.cabin !== 'economy' ? { cabin: trip.cabin } : {}) };
+    const calendarTask = (async () => {
       const first = await call(deps.calendar, inner(request, '/api/flights/calendar', body), env, deps.ctx, deps);
       const answers = first.data?.parts ? await Promise.all(Array.from({ length: first.data.parts }, (_, part) => call(deps.calendar, inner(request, '/api/flights/calendar', { ...body, part }), env, deps.ctx, deps))) : [first];
       for (const answer of answers) for (const p of answer.data?.prices || []) if (!found.has(p.date) || p.amount < found.get(p.date)) found.set(p.date, p.amount);
-    }
+    })();
+    const searchTask = searchDay(ctx, trip, prices);
+    await calendarTask;
     const travellers = trip.passengers + trip.children;
     const list = days.map(date => ({ date, priceKz: found.has(date) ? kzOf(found.get(date), prices) * travellers : null }));
-    const priced = list.filter(d => d.priceKz);
-    const cheapest = priced.sort((a, b) => a.priceKz - b.priceKz)[0] || null;
-    cards.push({ type: 'dates', title: `Preços indicativos ${nights ? `(ida e volta de ~${tripDays} dias)` : '(só ida)'}`, chosen: trip.departureDate, cheapest: cheapest?.date || null, items: list });
-    const requestedDay = await searchDay(ctx, trip, prices);
+    const requestedDay = await searchTask;
+    // The real price of the asked day replaces its indicative one: another day is offered only when its
+    // indicative price is clearly below the cheapest real flight (3 %), never when it is dearer.
+    const exact = requestedDay.cheapestKz ?? null;
+    for (const d of list) if (d.date === trip.departureDate && exact) d.priceKz = exact;
+    const cheaper = list.filter(d => d.date !== trip.departureDate && d.priceKz && (exact ? d.priceKz < exact * 0.97 : true)).sort((a, b) => a.priceKz - b.priceKz)[0] || null;
+    const cheapest = [...list].filter(d => d.priceKz).sort((a, b) => a.priceKz - b.priceKz)[0] || null;
+    // The dates card goes before the flights card of the asked day (searchDay pushed it first).
+    const flightsCard = cards.at(-1)?.type === 'flights' ? cards.pop() : null;
+    cards.push({ type: 'dates', title: `Preços indicativos ${nights ? `(ida e volta de ${nights} dias)` : '(só ida)'}`, chosen: trip.departureDate, cheapest: cheapest?.date || null, items: list });
+    if (flightsCard) cards.push(flightsCard);
+    delete requestedDay.cheapestKz;
     return {
       requestedDayFlights: requestedDay,
       indicative: true,
       days: list.map(d => ({ date: d.date, price: d.priceKz ? kzText(d.priceKz) : 'sem preço' })),
-      chosenDay: { date: trip.departureDate, price: found.has(trip.departureDate) ? kzText(kzOf(found.get(trip.departureDate), prices) * travellers) : 'sem preço' },
-      cheapestDay: cheapest ? { date: cheapest.date, price: kzText(cheapest.priceKz) } : null,
+      cheaperDay: cheaper ? { date: cheaper.date, price: kzText(cheaper.priceKz), savesAbout: exact ? kzText(exact - cheaper.priceKz) : null } : null,
+      note: cheaper ? 'cheaperDay é mais barato do que o voo mais barato do dia pedido: podes sugeri-lo.' : 'Nenhum dia vizinho é mais barato do que o dia pedido: não sugiras outro dia.',
+    };
+  }
+
+  if (name === 'cheapest_dates') {
+    const months = [...new Set((Array.isArray(args.months) ? args.months : [args.months]).map(m => String(m || '').slice(0, 7)))].filter(m => /^\d{4}-(0[1-9]|1[0-2])$/.test(m)).slice(0, 3);
+    const { trip, error } = tripOf({ ...args, departureDate: luandaToday() });
+    if (error) return { error };
+    if (!months.length) return { error: 'Indica os meses no formato AAAA-MM.' };
+    if (conversation.calendar_lookups + months.length > LIMITS.calendar) return { error: 'Limite de consultas ao calendário desta conversa atingido: pede ao cliente um mês.' };
+    conversation.calendar_lookups += months.length;
+    const roundTrip = Number.isInteger(args.tripDays) && args.tripDays > 0;
+    const STANDARD = [3, 5, 7, 10, 14, 21, 30, 45, 60];
+    const tripDays = roundTrip ? STANDARD.reduce((best, n) => (Math.abs(n - args.tripDays) < Math.abs(best - args.tripDays) ? n : best), STANDARD[0]) : null;
+    const travellers = trip.passengers + trip.children;
+    const found = new Map();
+    await Promise.all(months.map(async month => {
+      const body = { origin: trip.origin, destination: trip.destination, passengers: 1, type: roundTrip ? 'return' : 'oneway', month, ...(tripDays ? { tripDays } : {}), ...(trip.cabin !== 'economy' ? { cabin: trip.cabin } : {}) };
+      const first = await call(deps.calendar, inner(request, '/api/flights/calendar', body), env, deps.ctx, deps);
+      const answers = first.data?.parts ? await Promise.all(Array.from({ length: first.data.parts }, (_, part) => call(deps.calendar, inner(request, '/api/flights/calendar', { ...body, part }), env, deps.ctx, deps))) : [first];
+      for (const answer of answers) for (const p of answer.data?.prices || []) if (!found.has(p.date) || p.amount < found.get(p.date)) found.set(p.date, p.amount);
+    }));
+    const list = [...found].map(([date, amount]) => ({ date, priceKz: kzOf(amount, prices) * travellers })).sort((a, b) => a.priceKz - b.priceKz);
+    if (!list.length) return { months, days: [], note: 'Sem preços para estes meses. Propõe outros meses ou o WhatsApp da DOT.' };
+    const best = list.slice(0, 7).sort((a, b) => a.date.localeCompare(b.date));
+    cards.push({ type: 'dates', title: `Dias mais baratos ${roundTrip ? `(ida e volta de ~${tripDays} dias)` : '(só ida)'}`, chosen: null, cheapest: list[0].date, items: best });
+    return {
+      months,
+      cheapestDay: { date: list[0].date, price: kzText(list[0].priceKz) },
+      cheapestDays: best.map(d => ({ date: d.date, price: kzText(d.priceKz) })),
+      note: 'Preços indicativos, já mostrados num cartão. Diz o dia mais barato e o preço, e pergunta se quer ver os voos desse dia (search_flights).',
     };
   }
 
   if (name === 'search_flights') {
     const { trip, error } = tripOf(args);
     if (error) return { error };
-    return searchDay(ctx, trip, prices);
+    const result = await searchDay(ctx, trip, prices);
+    delete result.cheapestKz;
+    return result;
   }
 
   if (name === 'choose_flight') {
@@ -428,11 +493,12 @@ async function prepareQuote(ctx, itinerary, { silent = false } = {}) {
 }
 
 // ── The model ────────────────────────────────────────────────────────────────
-async function complete(env, deps, messages) {
+// toolChoice 'none' forces a text answer (the last step, so the customer always gets a reply).
+async function complete(env, deps, messages, toolChoice = 'auto') {
   const response = await (deps.fetcher || fetch)(OPENROUTER, {
     method: 'POST',
     headers: { Authorization: `Bearer ${env.OPENROUTER_API_KEY}`, 'Content-Type': 'application/json', 'HTTP-Referer': env.PUBLIC_BASE_URL || 'https://www.dotviagens.com', 'X-Title': 'DOT Viagens' },
-    body: JSON.stringify({ model: modelOf(env), messages, tools: TOOLS, tool_choice: 'auto', temperature: 0.3, max_tokens: LIMITS.maxTokens, usage: { include: true } }),
+    body: JSON.stringify({ model: modelOf(env), messages, tools: TOOLS, tool_choice: toolChoice, temperature: 0.3, max_tokens: LIMITS.maxTokens, usage: { include: true } }),
     signal: AbortSignal.timeout(25000),
   });
   const data = await response.json().catch(() => null);
@@ -513,7 +579,9 @@ export async function aiChat(request, env, ctx, deps) {
   try {
     for (let step = 0; step < LIMITS.steps; step++) {
       state.summary = summaryOf(state);
-      const data = await complete(env, deps, [{ role: 'system', content: systemPrompt(state) }, ...trimHistory(history)]);
+      // Last step or little time left: no more tools, the model must answer with what it already found.
+      const final = step === LIMITS.steps - 1 || Date.now() - started > LIMITS.deadlineMs - 25000;
+      const data = await complete(env, deps, [{ role: 'system', content: systemPrompt(state) }, ...trimHistory(history)], final ? 'none' : 'auto');
       tokensIn += Number(data.usage?.prompt_tokens || 0);
       tokensOut += Number(data.usage?.completion_tokens || 0);
       cost += Number(data.usage?.cost || 0);
@@ -535,14 +603,9 @@ export async function aiChat(request, env, ctx, deps) {
         const result = await runTool(toolCall.function?.name, args, toolCtx).catch(error => ({ error: error.message || 'Erro na ferramenta.' }));
         history.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(result).slice(0, 6000) });
       }
-      if (Date.now() - started > LIMITS.deadlineMs - 8000) {
-        text = 'Ainda estou a tratar disto. Escreve "continuar" para eu terminar.';
-        history.push({ role: 'assistant', content: text });
-        break;
-      }
     }
     if (!text) {
-      text = 'Desculpa, não consegui terminar. Podes repetir de outra forma?';
+      text = cards.length ? 'Vê as opções acima. Diz-me qual preferes ou se queres outra data.' : 'Desculpa, não consegui terminar. Podes repetir de outra forma?';
       history.push({ role: 'assistant', content: text });
     }
   } catch (error) {

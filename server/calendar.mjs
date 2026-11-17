@@ -13,6 +13,8 @@ const DAY_MS = 86400000;
 const MAX_AHEAD_DAYS = 330;
 // Return calendar: return dates priced up to ~2 months after the fixed departure.
 const MAX_SPAN_DAYS = 62;
+// Longest range of days asked instead of a month (one SearchApi request: 14 x 14 round trips at most).
+const MAX_RANGE_DAYS = 14;
 // Memory cache per server instance, then a cache shared by every instance and visitor
 // (Supabase table calendar_cache): a month seen by anyone opens instantly for 6 hours.
 const TTL_MS = 30 * 60 * 1000;
@@ -45,7 +47,13 @@ export function validateCalendar(body, now = Date.now()) {
   const part = body.part ?? null;
   if (part !== null && (!Number.isInteger(part) || part < 0 || part > 9)) fail('Parte do mês inválida.');
   if (type !== 'oneway' && type !== 'return') fail('Tipo de viagem inválido.');
-  if (typeof month !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) fail('Mês inválido.');
+  // A short range of days instead of a month (the results date strip, the assistant): 1 provider
+  // request of a few seconds instead of a whole month (3 parts of 15-25 s for a round trip).
+  const range = body.from != null || body.to != null;
+  if (range) {
+    if (!isoDate(body.from) || !isoDate(body.to) || body.to < body.from) fail('Intervalo de datas inválido.');
+    if (Math.round((Date.parse(`${body.to}T00:00:00Z`) - Date.parse(`${body.from}T00:00:00Z`)) / DAY_MS) > MAX_RANGE_DAYS - 1) fail('Intervalo de datas demasiado longo.');
+  } else if (typeof month !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) fail('Mês inválido.');
   const today = new Date(now).toISOString().slice(0, 10);
   const lastBookable = addDays(today, MAX_AHEAD_DAYS);
   let fixedOutbound = null;
@@ -59,17 +67,19 @@ export function validateCalendar(body, now = Date.now()) {
       if (!Number.isInteger(tripDays) || tripDays < 1 || tripDays > 60) fail('Duração da viagem inválida.');
     }
   }
-  const monthStart = `${month}-01`;
+  // monthStart: the first day the answer may contain (the range's first day in a range).
+  const monthStart = range ? body.from : `${month}-01`;
   let start = monthStart < today ? today : monthStart;
-  let end = lastDayOf(month);
+  let end = range ? body.to : lastDayOf(month);
   if (end > lastBookable) end = lastBookable;
   if (fixedOutbound) {
     // The provider departs on date_range_start and prices each return date until date_range_end.
-    start = fixedOutbound;
+    if (start < fixedOutbound) start = fixedOutbound;
+    if (!range) start = fixedOutbound;
     const limit = addDays(fixedOutbound, MAX_SPAN_DAYS);
     if (end > limit) end = limit;
   }
-  return { origin, destination, passengers, cabin, type, month, monthStart, start, end, fixedOutbound, tripDays, part, empty: end < start || end < monthStart };
+  return { origin, destination, passengers, cabin, type, month: range ? body.from.slice(0, 7) : month, monthStart, start, end, fixedOutbound, tripDays, part, range, empty: end < start || end < monthStart };
 }
 
 export function normalizeCalendar(data, q) {
@@ -264,7 +274,9 @@ export async function withRealPrices(env, deps, q, prices) {
     for (const row of rows) {
       const amount = Number(row.min_price_brl) / Math.max(1, Number(row.passengers) || 1);
       if (!(amount > 0)) continue;
-      if (q.type === 'return' && !q.fixedOutbound && standardTripDays(daysBetween(row.departure_date, row.return_date)) !== q.tripDays) continue;
+      // A range (the results strip) asks the exact trip length; a month asks the standard one.
+      const nights = daysBetween(row.departure_date, row.return_date);
+      if (q.type === 'return' && !q.fixedOutbound && (q.range ? nights : standardTripDays(nights)) !== q.tripDays) continue;
       const date = q.fixedOutbound ? row.return_date : row.departure_date;
       if (date < q.start || date > q.end) continue;
       if (!best.has(date) || amount < best.get(date).amount) best.set(date, { date, amount, low: false, outboundDate: row.departure_date, returnDate: row.return_date || null });

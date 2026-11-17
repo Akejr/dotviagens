@@ -41,7 +41,9 @@ const STATUS = {
   refunded: 'Reembolsada',
 };
 const FILTERS = [['', 'Todas'], ['paid', 'Por emitir'], ['pending_payment', 'Pendentes'], ['ticketed', 'Emitidas'], ['no_profit', 'Sem lucro'], ['payment_failed', 'Falhadas'], ['review', 'Para rever'], ['expired', 'Expiradas'], ['cancelled', 'Canceladas'], ['refunded', 'Reembolsadas']];
-const KIND = { view: 'Ida · data escolhida', prefetch: 'Ida · data vizinha', return: 'Volta · data escolhida', 'return-prefetch': 'Volta · data vizinha', calendar: 'Calendário de preços' };
+const KIND = { view: 'Ida · data escolhida', prefetch: 'Ida · data vizinha', return: 'Volta · data escolhida', 'return-prefetch': 'Volta · data vizinha', calendar: 'Calendário de preços', ai: 'Chat IA', alerts: 'Verificação automática de aviso', cabin: 'Outra classe no cartão' };
+// Searches that are not a visitor's own search on the site: the chat and the automatic alert checks.
+const SOURCE = { ai: 'Chat IA', alerts: 'Aviso de preço (verificação automática)' };
 const SMS_STATUS = { queued: 'Em fila', sent: 'Enviada', delivered: 'Entregue', undelivered: 'Não entregue', failed: 'Falhou', expired: 'Expirou' };
 const SMS_PURPOSE = { otp: 'Código de acesso', payment_confirmed: 'Pagamento confirmado', ticket_issued: 'Bilhete emitido', booking_cancelled: 'Cancelamento', price_drop: 'Aviso de preço' };
 const SERVICE = { gpo: 'Multicaixa Express', reference: 'Referência' };
@@ -543,7 +545,7 @@ function bindResume() {
 
 // Journeys: one customer search with the dates and returns it consulted.
 const tripDates = j => `${shortDay(j.departure_date)}${j.return_date ? ` — ${shortDay(j.return_date)}` : ' · só ida'}`;
-const bestBrl = j => j.outbound_min_brl ?? j.view_min_brl ?? j.return_min_brl;
+const bestBrl = j => j.outbound_min_brl ?? j.view_min_brl ?? j.return_min_brl ?? j.other_min_brl;
 const priceFrom = j => (bestBrl(j) == null ? (j.last_status === 'error' ? 'Erro do fornecedor' : 'Sem voos') : `desde ${priceText(bestBrl(j))}`);
 const whoText = j => (j.customer ? j.customer.name || formatPhone(j.customer.phone) : `Visitante ${String(j.visitor || '').slice(0, 6)}`);
 // Where the search was made: city and country from the IP (Vercel/Cloudflare geolocation), approximate.
@@ -747,9 +749,12 @@ function journeyRow(j, index, previous) {
     ? `Ida escolhida a ${shortDay(j.chosen_outbound_date)}${j.chosen_return_date ? ` · volta a ${shortDay(j.chosen_return_date)}` : ''}`
     : j.round_trip ? 'A escolher a ida' : 'A comparar datas';
   const place = placeOf(j);
+  const source = SOURCE[j.source_kind] ? `<small class="tag">${esc(SOURCE[j.source_kind])}</small>` : '';
   const who = j.customer
-    ? `<strong>${esc(j.customer.name || 'Cliente')}</strong><small>${esc(formatPhone(j.customer.phone))}</small>${place ? `<small>${place}</small>` : ''}`
-    : `<strong>Visitante ${esc(String(j.visitor || '').slice(0, 6))}</strong><small>${place || 'Localização desconhecida'}</small>`;
+    ? `<strong>${esc(j.customer.name || 'Cliente')}</strong><small>${esc(formatPhone(j.customer.phone))}</small>${place ? `<small>${place}</small>` : ''}${source}`
+    : j.source_kind === 'alerts'
+      ? `<strong>Sistema</strong>${source}`
+      : `<strong>Visitante ${esc(String(j.visitor || '').slice(0, 6))}</strong><small>${place || 'Localização desconhecida'}</small>${source}`;
   const calls = `${plural(j.calls, 'consulta', 'consultas')}${j.errors ? ` · ${plural(j.errors, 'erro', 'erros')}` : ''}`;
   return `<article class="journey${isNew ? ' new' : ''}${updated ? ' updated' : ''}" data-key="${esc(j.key)}">
     <button class="journey-main" type="button" aria-expanded="false" aria-controls="calls-${index}">
