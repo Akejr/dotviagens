@@ -157,3 +157,53 @@ export async function searchApiCalendar(env, q, fetcher) {
   }
   return { response: { ok: true, status: 200 }, data: { prices } };
 }
+
+// Admin price image (server/price-image.mjs): a month of departures with, in a round trip, every
+// trip length from minDays to maxDays. Each request may hold 200 departure x return combinations,
+// so the departure blocks shrink as the range of lengths grows (14 days for one length, 7 for 21).
+const SPAN_COMBINATIONS = 200;
+export function spanBlockDays(q) {
+  if (q.type !== 'return') return ONE_WAY_BLOCK_DAYS;
+  const span = q.maxDays - q.minDays;
+  let size = severalAirports(q) ? SEVERAL_AIRPORTS_BLOCK_DAYS : ROUND_TRIP_BLOCK_DAYS;
+  while (size > 1 && size * (size + span) > SPAN_COMBINATIONS) size -= 1;
+  return size;
+}
+
+// Answer: {response, data: {prices: [{outbound_date, return_date, price}]}, requests}; a failed block
+// only leaves its days without a price.
+export async function searchApiSpanCalendar(env, q, fetcher) {
+  const take = airportsPerSide(q.origin, q.destination);
+  const common = { engine: 'google_flights_calendar', departure_id: calendarId(q.origin, take), arrival_id: calendarId(q.destination, take), adults: String(q.passengers), travel_class: travelClass(q.cabin), stops: 'any' };
+  const requests = blocks(q.start, q.end, spanBlockDays(q)).map(([from, to]) => (q.type !== 'return'
+    ? { ...common, flight_type: 'one_way', outbound_date: from, outbound_date_start: from, outbound_date_end: to }
+    : {
+      ...common,
+      flight_type: 'round_trip',
+      outbound_date: from,
+      outbound_date_start: from,
+      outbound_date_end: to,
+      return_date: addDays(from, q.minDays),
+      return_date_start: addDays(from, q.minDays),
+      return_date_end: addDays(to, q.maxDays) > q.lastReturn ? q.lastReturn : addDays(to, q.maxDays),
+    }));
+  const answers = await Promise.all(requests.map(async params => {
+    try {
+      const response = await fetcher(requestUrl(env, params), { signal: AbortSignal.timeout(CALENDAR_TIMEOUT_MS) });
+      return { response, data: await response.json().catch(() => null) };
+    } catch {
+      return { response: { ok: false, status: 504 }, data: null };
+    }
+  }));
+  const good = answers.filter(({ response, data }) => response.ok && data && (!data.error || noFlights(data)));
+  if (!good.length) return { ...(answers.find(({ response }) => [401, 403, 429].includes(response.status)) || answers[0]), requests: requests.length };
+  const nights = row => Math.round((Date.parse(`${row.return}T00:00:00Z`) - Date.parse(`${row.departure}T00:00:00Z`)) / DAY_MS);
+  const prices = [];
+  for (const { data } of good) {
+    for (const row of Array.isArray(data.calendar) ? data.calendar : []) {
+      if (q.type === 'return' && !(nights(row) >= q.minDays && nights(row) <= q.maxDays)) continue;
+      prices.push({ outbound_date: row.departure, return_date: row.return || null, price: row.price });
+    }
+  }
+  return { response: { ok: true, status: 200 }, data: { prices }, requests: requests.length, failed: answers.length - good.length };
+}

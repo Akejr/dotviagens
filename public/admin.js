@@ -8,13 +8,14 @@ import { mountOtp } from './otp-widget.js';
 import { countryName } from './countries.js';
 import { loadAirports } from './airports.js';
 import { toKz, totalKz, totalBrl } from './flight-model.js';
+import { drawPriceImage, IMAGE_CABIN } from './price-image.js';
 
 const $ = (selector, scope = document) => scope.querySelector(selector);
 const root = $('#admin-root');
 const dialog = $('#admin-dialog');
 const LIVE_MS = 3000;
 const NAV = [
-  ['OPERAÇÃO', [['overview', 'Visão geral', 'dashboard'], ['searches', 'Pesquisas', 'activity'], ['bookings', 'Compras', 'ticket'], ['ai', 'IA', 'sparkles'], ['customers', 'Utilizadores', 'users'], ['alerts', 'Avisos', 'bell']]],
+  ['OPERAÇÃO', [['overview', 'Visão geral', 'dashboard'], ['searches', 'Pesquisas', 'activity'], ['bookings', 'Compras', 'ticket'], ['ai', 'IA', 'sparkles'], ['image', 'Imagem de preços', 'image'], ['customers', 'Utilizadores', 'users'], ['alerts', 'Avisos', 'bell']]],
   ['CONFIGURAÇÃO', [['rates', 'Câmbio e preço', 'coins'], ['sms', 'SMS', 'message'], ['audit', 'Auditoria', 'list'], ['system', 'Sistema', 'settings']]],
 ];
 // Live topics (keys of admin_live_state) that refresh each screen.
@@ -41,9 +42,9 @@ const STATUS = {
   refunded: 'Reembolsada',
 };
 const FILTERS = [['', 'Todas'], ['paid', 'Por emitir'], ['pending_payment', 'Pendentes'], ['ticketed', 'Emitidas'], ['no_profit', 'Sem lucro'], ['payment_failed', 'Falhadas'], ['review', 'Para rever'], ['expired', 'Expiradas'], ['cancelled', 'Canceladas'], ['refunded', 'Reembolsadas']];
-const KIND = { view: 'Ida · data escolhida', prefetch: 'Ida · data vizinha', return: 'Volta · data escolhida', 'return-prefetch': 'Volta · data vizinha', calendar: 'Calendário de preços', ai: 'Chat IA', alerts: 'Verificação automática de aviso', cabin: 'Outra classe no cartão' };
+const KIND = { view: 'Ida · data escolhida', prefetch: 'Ida · data vizinha', return: 'Volta · data escolhida', 'return-prefetch': 'Volta · data vizinha', calendar: 'Calendário de preços', ai: 'Chat IA', alerts: 'Verificação automática de aviso', cabin: 'Outra classe no cartão', image: 'Imagem de preços (painel)' };
 // Searches that are not a visitor's own search on the site: the chat and the automatic alert checks.
-const SOURCE = { ai: 'Chat IA', alerts: 'Aviso de preço (verificação automática)' };
+const SOURCE = { ai: 'Chat IA', alerts: 'Aviso de preço (verificação automática)', image: 'Imagem de preços (painel)' };
 const SMS_STATUS = { queued: 'Em fila', sent: 'Enviada', delivered: 'Entregue', undelivered: 'Não entregue', failed: 'Falhou', expired: 'Expirou' };
 const SMS_PURPOSE = { otp: 'Código de acesso', payment_confirmed: 'Pagamento confirmado', ticket_issued: 'Bilhete emitido', booking_cancelled: 'Cancelamento', price_drop: 'Aviso de preço' };
 const SERVICE = { gpo: 'Multicaixa Express', reference: 'Referência' };
@@ -394,6 +395,7 @@ function route() {
     booking: (p, ctx) => bookingView(decodeURIComponent(argument || ''), ctx),
     customers: customersView,
     alerts: alertsView,
+    image: imageView,
     ai: (p, ctx) => (argument ? aiConversationView(decodeURIComponent(argument), ctx) : aiView(p, ctx)),
     rates: ratesView,
     sms: smsView,
@@ -1205,6 +1207,160 @@ async function alertsView(params, ctx) {
   });
 }
 
+// ── Price image (the cheapest days of a month, to send to a customer) ────────
+// Step 1 asks the month's calendar (/api/admin/price-image/calendar), step 2 the real search of each
+// cheapest day (/day: airline, exact price, logos as data URLs); the image is drawn here on a canvas.
+const IMAGE_SPAN_MAX = 21;
+let airportList = [];
+let imageState = null;
+let imageUrl = null;
+
+const placeCode = text => {
+  const value = String(text || '').trim().toUpperCase();
+  return (value.match(/\(([A-Z]{3})\)$/) || value.match(/^([A-Z]{3})$/) || [])[1] || null;
+};
+// Provider requests of step 1, same rule as spanBlockDays in server/searchapi.mjs.
+function imageCost(type, minDays, maxDays, days) {
+  if (type !== 'return') return 1;
+  const span = Math.max(0, maxDays - minDays);
+  let size = 14;
+  while (size > 1 && size * (size + span) > 200) size -= 1;
+  return Math.ceil(days / size);
+}
+async function showImage() {
+  const box = $('#image-result');
+  if (!box || !imageState) return;
+  const canvas = await drawPriceImage(imageState, cityName);
+  const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+  if (!blob || !$('#image-result')) return;
+  if (imageUrl) URL.revokeObjectURL(imageUrl);
+  imageUrl = URL.createObjectURL(blob);
+  const q = imageState.query;
+  const name = `dot-precos-${q.origin}-${q.destination}-${q.month}.png`;
+  const file = new File([blob], name, { type: 'image/png' });
+  const canShare = Boolean(navigator.canShare?.({ files: [file] }));
+  const missing = imageState.best.filter(b => !b.exact).length;
+  box.innerHTML = `<h2>${hIcon('image')} ${esc(cityName(q.origin))} → ${esc(cityName(q.destination))}</h2>
+    <p>${plural(imageState.days.length, 'dia com preço', 'dias com preço')} · ${plural(imageState.best.filter(b => b.exact).length, 'dia pesquisado', 'dias pesquisados')} com companhia${missing ? ` · ${missing} sem voos confirmados (fora da lista)` : ''}.</p>
+    <img class="price-image" src="${imageUrl}" alt="Calendário de preços de ${esc(cityName(q.origin))} para ${esc(cityName(q.destination))}">
+    <div class="image-actions"><a class="primary btn-link" href="${imageUrl}" download="${esc(name)}">${icon('download', 16)} Descarregar</a>${canShare ? `<button class="btn-sm" type="button" id="image-share">${icon('share', 14)} Partilhar</button>` : ''}</div>`;
+  const share = $('#image-share');
+  if (share) share.onclick = () => navigator.share({ files: [file], title: 'DOT Viagens' }).catch(() => {});
+}
+
+async function imageView(params, ctx) {
+  setTitle('Imagem de preços');
+  await airportsReady;
+  if (stale(ctx)) return;
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Luanda' }).format(new Date());
+  const [ty, tm] = today.split('-').map(Number);
+  const nextMonth = `${tm === 12 ? ty + 1 : ty}-${String(tm === 12 ? 1 : tm + 1).padStart(2, '0')}`;
+  const last = new Date(Date.parse(`${today}T00:00:00Z`) + 330 * 86400000).toISOString().slice(0, 7);
+  const q = imageState?.query;
+  const label = code => (cities[code] ? `${cities[code]} (${code})` : code || '');
+  const options = (list, chosen) => list.map(([value, text]) => `<option value="${esc(value)}"${String(value) === String(chosen) ? ' selected' : ''}>${esc(text)}</option>`).join('');
+  view().innerHTML = `<div class="admin-grid"><div class="admin-card"><h2>${hIcon('image')} Criar imagem</h2>
+      <p>Os dias mais baratos de um mês numa imagem para enviares ao cliente. Cada dia mostra o preço do calendário; os mais baratos são pesquisados a seguir, com a companhia e o preço exacto.</p>
+      <form id="image-form" novalidate><div class="form-grid">
+        <label class="form-field"><span>Origem</span><input name="origin" list="image-places" autocomplete="off" required value="${esc(label(q?.origin || 'NBJ'))}"></label>
+        <label class="form-field"><span>Destino</span><input name="destination" list="image-places" autocomplete="off" required placeholder="Ex.: Lisboa (LIS)" value="${esc(label(q?.destination))}"></label>
+        <label class="form-field"><span>Mês</span><input name="month" type="month" min="${today.slice(0, 7)}" max="${last}" required value="${esc(q?.month || nextMonth)}"></label>
+        <label class="form-field"><span>Viagem</span><select name="type">${options([['return', 'Ida e volta'], ['oneway', 'Só ida']], q?.type || 'return')}</select></label>
+        <label class="form-field" data-return><span>Mínimo de dias de viagem</span><input name="minDays" type="number" inputmode="numeric" min="1" max="60" value="${esc(q?.minDays ?? 7)}"></label>
+        <label class="form-field" data-return><span>Máximo de dias de viagem</span><input name="maxDays" type="number" inputmode="numeric" min="1" max="90" value="${esc(q?.maxDays ?? 10)}"></label>
+        <label class="form-field"><span>Adultos</span><select name="passengers">${options([1, 2, 3, 4].map(n => [n, plural(n, 'adulto', 'adultos')]), q?.passengers || 1)}</select></label>
+        <label class="form-field"><span>Classe</span><select name="cabin">${options(Object.entries(IMAGE_CABIN), q?.cabin || 'economy')}</select></label>
+        <label class="form-field span-2"><span>Dias pesquisados com companhia</span><select name="top">${options([[3, '3 dias mais baratos'], [5, '5 dias mais baratos'], [7, '7 dias mais baratos']], imageState?.top || 5)}</select></label></div>
+        <datalist id="image-places">${airportList.map(a => `<option value="${esc(`${a.city} (${a.code})`)}">${esc(`${a.name} · ${a.country}`)}</option>`).join('')}</datalist>
+        <div class="price-preview"><div class="notice-line">${icon('info', 16)}<span id="image-cost"></span></div></div>
+        <p class="form-error" role="alert" hidden></p>
+        <div class="form-actions"><span class="muted" id="image-progress" aria-live="polite"></span><button class="primary" type="submit">${icon('image', 16)} Gerar imagem</button></div></form></div>
+    <div class="admin-card image-result" id="image-result">${emptyState('image', 'A imagem aparece aqui', 'Demora até 1 minuto: primeiro o calendário do mês, depois a pesquisa dos dias mais baratos.')}</div></div>`;
+  const form = $('#image-form');
+  const field = name => form.querySelector(`[name=${name}]`);
+  const read = () => ({
+    origin: placeCode(field('origin').value),
+    destination: placeCode(field('destination').value),
+    month: field('month').value,
+    type: field('type').value,
+    minDays: Number(field('minDays').value),
+    maxDays: Number(field('maxDays').value || field('minDays').value),
+    passengers: Number(field('passengers').value),
+    cabin: field('cabin').value,
+    top: Number(field('top').value),
+  });
+  const paintCost = () => {
+    const v = read();
+    form.querySelectorAll('[data-return]').forEach(element => {
+      element.hidden = v.type !== 'return';
+    });
+    const [year, month] = String(v.month || nextMonth).split('-').map(Number);
+    const monthDays = new Date(Date.UTC(year, month, 0)).getUTCDate() - (v.month === today.slice(0, 7) ? Number(today.slice(8)) - 1 : 0);
+    const calendar = imageCost(v.type, v.minDays || 1, v.maxDays || v.minDays || 1, monthDays);
+    $('#image-cost').textContent = `Gasta cerca de ${calendar + v.top} pesquisas da ${searchProvider}: ${calendar} no calendário e ${v.top} nos dias mais baratos.`;
+  };
+  form.oninput = paintCost;
+  paintCost();
+  if (imageState) showImage();
+  form.onsubmit = async event => {
+    event.preventDefault();
+    const box = $('.form-error', form);
+    const progress = $('#image-progress');
+    const button = form.querySelector('button[type=submit]');
+    const v = read();
+    box.hidden = true;
+    const problem = !v.origin ? 'Escolhe a origem da lista (ex.: Luanda (NBJ)).'
+      : !v.destination ? 'Escolhe o destino da lista (ex.: Lisboa (LIS)).'
+        : v.origin === v.destination ? 'A origem e o destino têm de ser diferentes.'
+          : !/^\d{4}-\d{2}$/.test(v.month) ? 'Escolhe o mês.'
+            : v.type === 'return' && !(Number.isInteger(v.minDays) && v.minDays >= 1 && v.minDays <= 60) ? 'O mínimo de dias vai de 1 a 60.'
+              : v.type === 'return' && !(Number.isInteger(v.maxDays) && v.maxDays >= v.minDays) ? 'O máximo de dias tem de ser igual ou maior do que o mínimo.'
+                : v.type === 'return' && v.maxDays - v.minDays > IMAGE_SPAN_MAX ? `Entre o mínimo e o máximo cabem até ${IMAGE_SPAN_MAX} dias.` : '';
+    if (problem) {
+      box.textContent = problem;
+      box.hidden = false;
+      return;
+    }
+    document.activeElement?.blur();
+    const body = { origin: v.origin, destination: v.destination, month: v.month, type: v.type, passengers: v.passengers, cabin: v.cabin, ...(v.type === 'return' ? { minDays: v.minDays, maxDays: v.maxDays } : {}) };
+    button.disabled = true;
+    button.innerHTML = '<span class="spinner"></span> A gerar…';
+    progress.textContent = 'A ver os preços do mês…';
+    try {
+      const calendar = await api('/api/admin/price-image/calendar', { method: 'POST', body, timeout: 65000 });
+      if (!calendar.days.length) throw new Error('Não há preços para este mês. Experimenta outro mês ou outra duração.');
+      const top = [...calendar.days].sort((a, b) => a.priceKz - b.priceKz).slice(0, v.top);
+      const jid = crypto.randomUUID();
+      let done = 0;
+      progress.textContent = `A pesquisar as companhias: 0 de ${top.length}…`;
+      const found = await Promise.all(top.map(day => api('/api/admin/price-image/day', {
+        method: 'POST',
+        body: { origin: v.origin, destination: v.destination, departureDate: day.date, ...(day.returnDate ? { returnDate: day.returnDate } : {}), passengers: v.passengers, cabin: v.cabin, jid },
+        timeout: 65000,
+      }).catch(() => null).finally(() => {
+        done += 1;
+        progress.textContent = `A pesquisar as companhias: ${done} de ${top.length}…`;
+      })));
+      const best = top.map((day, i) => (found[i]?.found
+        ? { ...day, exact: true, priceKz: found[i].priceKz, airlines: found[i].airlines, logos: found[i].logos, stops: found[i].stops }
+        : { ...day, exact: false, noFlights: found[i]?.found === false })).sort((a, b) => a.priceKz - b.priceKz);
+      // The searched days show their exact price; a day where the search found no flight loses its price.
+      const exact = new Map(best.filter(b => b.exact).map(b => [b.date, b.priceKz]));
+      const gone = new Set(best.filter(b => b.noFlights).map(b => b.date));
+      const days = calendar.days.filter(d => !gone.has(d.date)).map(d => (exact.has(d.date) ? { ...d, priceKz: exact.get(d.date) } : d));
+      imageState = { query: calendar.query, days, best, top: v.top, generatedAt: calendar.generatedAt };
+      await showImage();
+      toast(calendar.failedRequests ? 'Imagem pronta. Uma parte do calendário não respondeu: alguns dias ficaram sem preço.' : 'Imagem pronta.', calendar.failedRequests ? 'error' : 'ok');
+    } catch (error) {
+      box.textContent = error.message || 'Não foi possível gerar a imagem.';
+      box.hidden = false;
+    } finally {
+      button.disabled = false;
+      button.innerHTML = `${icon('image', 16)} Gerar imagem`;
+      progress.textContent = '';
+    }
+  };
+}
 // ── Purchase by AI ───────────────────────────────────────────────────────────
 const usd = value => `US$ ${Number(value || 0).toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`;
 const AI_STATUS = { open: 'Aberta', booked: 'Com reserva', blocked: 'Bloqueada' };
@@ -1361,6 +1517,7 @@ async function systemView(params, ctx) {
 
 // ── Start ────────────────────────────────────────────────────────────────────
 const airportsReady = loadAirports().then(list => {
+  airportList = list;
   cities = Object.fromEntries(list.map(airport => [airport.code, airport.city]));
   cities.CMN = 'Casablanca';
 }).catch(() => {});

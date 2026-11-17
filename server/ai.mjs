@@ -75,7 +75,7 @@ export function findPlaces(query) {
 
 // ── Calls to the site's own routes (same validation, caches, logs and limits) ──
 const FORWARD = ['user-agent', 'x-forwarded-for', 'x-real-ip', 'cf-connecting-ip', 'x-vercel-ip-country', 'x-vercel-ip-city', 'x-vercel-forwarded-for'];
-function inner(request, path, body, cookieHeader) {
+export function inner(request, path, body, cookieHeader) {
   const url = new URL(path, request.url);
   const headers = { 'content-type': 'application/json', origin: url.origin };
   for (const name of FORWARD) if (request.headers.get(name)) headers[name] = request.headers.get(name);
@@ -83,7 +83,7 @@ function inner(request, path, body, cookieHeader) {
   return new Request(url, { method: 'POST', headers, body: JSON.stringify(body) });
 }
 // Handlers either return a Response or throw an HttpError: both become {ok, status, data}.
-async function call(handler, req, env, ctx, deps) {
+export async function call(handler, req, env, ctx, deps) {
   try {
     const response = await handler(req, env, ctx, deps);
     const data = await response.json().catch(() => null);

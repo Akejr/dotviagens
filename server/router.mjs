@@ -14,6 +14,7 @@ import { createAlert, checkAlerts, listAlerts, alertAction, checkAllAlerts } fro
 
 import * as admin from './admin.mjs';
 import { aiStatus, aiChat, adminAi, adminAiConversation } from './ai.mjs';
+import { priceImageCalendar, priceImageDay } from './price-image.mjs';
 
 // Daily-salted visitor hash: counts unique visitors without storing IPs.
 async function visitorOf(env, request) {
@@ -170,6 +171,8 @@ const routes = [
   ['POST', '/api/admin/sweep', admin.adminSweep],
   ['GET', '/api/admin/ai', adminAi],
   ['GET', `/api/admin/ai/(${UUID})`, adminAiConversation],
+  ['POST', '/api/admin/price-image/calendar', priceImageCalendar],
+  ['POST', '/api/admin/price-image/day', (request, env, ctx, deps) => priceImageDay(request, env, ctx, { ...deps, search })],
 ].map(([method, path, handler]) => [method, new RegExp(`^${path}$`), handler]);
 
 export async function handleApi(request, env, ctx, deps = {}) {
