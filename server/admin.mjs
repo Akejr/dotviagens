@@ -176,21 +176,24 @@ async function withOtherKinds(store, journeys) {
   const filters = [ids.length ? `id.in.(${ids.join(',')})` : null, keys.length ? `journey_key.in.(${keys.map(key => `"${key}"`).join(',')})` : null].filter(Boolean);
   let rows = [];
   try {
-    rows = await store.select('search_logs', { select: 'id,journey_key,kind,status,min_price_brl', or: `(${filters.join(',')})`, limit: 1000 });
+    rows = await store.select('search_logs', { select: 'id,journey_key,kind,status,min_price_brl,departure_date,return_date,has_token', order: 'id.asc', or: `(${filters.join(',')})`, limit: 1000 });
   } catch {
     return journeys;
   }
   const byKey = new Map();
   for (const row of rows) {
     const key = row.journey_key || `id:${row.id}`;
-    const info = byKey.get(key) || { min: null, kind: row.kind };
+    const info = byKey.get(key) || { min: null, kind: row.kind, returnDate: null, dates: new Set() };
+    // Their dates too: the SQL takes the trip's dates only from the site's kinds ("só ida" and "0 datas" otherwise).
+    if (!row.has_token) info.dates.add(row.departure_date);
+    if (!info.returnDate && row.return_date) info.returnDate = row.return_date;
     if (row.status === 'ok' && Number.isFinite(Number(row.min_price_brl)) && (info.min == null || Number(row.min_price_brl) < info.min)) info.min = Number(row.min_price_brl);
     if (!info.kind) info.kind = row.kind;
     byKey.set(key, info);
   }
   return journeys.map(j => {
     const info = byKey.get(j.key);
-    return info ? { ...j, other_min_brl: info.min, source_kind: info.kind || null } : j;
+    return info ? { ...j, other_min_brl: info.min, source_kind: info.kind || null, return_date: j.return_date ?? info.returnDate, outbound_dates: j.outbound_dates || info.dates.size } : j;
   });
 }
 

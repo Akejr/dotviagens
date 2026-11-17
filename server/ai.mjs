@@ -265,7 +265,9 @@ async function searchDay(ctx, trip, prices) {
   const { env, deps, request, state, conversation, cards } = ctx;
   if (conversation.provider_searches >= LIMITS.searches) return { error: 'Limite de pesquisas desta conversa atingido. Sugere continuar no site ou no WhatsApp.' };
   conversation.provider_searches += 1;
-  const body = { ...trip, children: trip.children || undefined, stops: 0, kind: 'ai' };
+  // One admin feed row per search of the chat: the airports of a city and the returns share the jid.
+  state.jid = crypto.randomUUID();
+  const body = { ...trip, children: trip.children || undefined, stops: 0, kind: 'ai', jid: state.jid };
   const result = await call(deps.search, inner(request, '/api/flights/search', body), env, deps.ctx, deps);
   if (!result.ok) return { error: result.data?.error || 'A pesquisa falhou.' };
   const offers = [...result.data.offers].sort((a, b) => a.amount - b.amount).slice(0, 6);
@@ -386,7 +388,7 @@ async function runTool(name, args, ctx) {
       if (!offer.departureToken) return { error: 'Este voo não permite escolher a volta. Escolhe outro.' };
       if (conversation.provider_searches >= LIMITS.searches) return { error: 'Limite de pesquisas desta conversa atingido.' };
       conversation.provider_searches += 1;
-      const back = await call(deps.search, inner(request, '/api/flights/search', { ...state.outbound.query, departureToken: offer.departureToken, kind: 'ai' }), env, deps.ctx, deps);
+      const back = await call(deps.search, inner(request, '/api/flights/search', { ...state.outbound.query, departureToken: offer.departureToken, kind: 'ai', ...(state.jid ? { jid: state.jid } : {}) }), env, deps.ctx, deps);
       if (!back.ok) return { error: back.data?.error || 'Não foi possível ver as voltas.' };
       const returns = [...back.data.offers].sort((a, b) => a.amount - b.amount).slice(0, 6);
       state.returns = { data: { ...back.data, offers: returns } };
