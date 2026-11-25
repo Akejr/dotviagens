@@ -914,7 +914,7 @@ async function bookingView(reference, ctx) {
 function amountBox(b) {
   const profit = hasProfit(b) ? formatKz(b.profit_aoa) : PAID.includes(b.status) ? '<span class="profit-missing">Por inserir</span>' : '—';
   return `<div class="amount-box"><small>Total pago pelo cliente</small><strong>${formatKz(b.amount_aoa)}</strong><dl>
-    <div><dt>Lucro DOT</dt><dd>${profit}</dd></div></dl></div>`;
+    <div><dt>Lucro DOT</dt><dd>${profit}</dd></div>${b.itinerary?.promo ? `<div><dt>${esc(b.itinerary.promo.label)}</dt><dd>desconto de ${formatKz(b.itinerary.promo.discountAoa)} (preço normal ${formatKz(b.itinerary.promo.fullAoa)})</dd></div>` : ''}</dl></div>`;
 }
 
 // Times, stops and duration can be unknown in a sale registered by hand.

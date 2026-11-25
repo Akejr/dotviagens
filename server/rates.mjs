@@ -5,6 +5,7 @@
 
 import { json } from './http.mjs';
 import { db, hasSupabase } from './supabase.mjs';
+import { promoInfo } from './promo.mjs';
 
 // Fee used until the admin sets one (and if the setting cannot be read): 1100 bp = 11%.
 export const DEFAULT_MARKUP_BP = 1100;
@@ -77,6 +78,8 @@ export async function rateEndpoint(request, env, ctx, deps) {
     quote: 'AOA',
     rate: value?.rate ?? null,
     markupBp: markup.markupBp,
+    // Black Friday: the bands the pages use to show the old price and the tag (null when it is off).
+    promo: promoInfo(),
     effectiveDate: value?.effectiveDate ?? null,
     updatedAt: value?.updatedAt ?? null,
   }, 200, { 'Cache-Control': 'public, max-age=60' });

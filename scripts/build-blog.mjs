@@ -60,9 +60,9 @@ const head = ({ title, description, path, ogType, image, imageAlt, extra = '', p
 
 const top = `<body class="blog-page">
 <div class="announcement">O teu próximo destino começa aqui. <span>Agora, com a DOT.</span></div>
-<header class="header wrap"><a href="/" class="brand" aria-label="DOT Viagens início"><img src="/assets/logo-dot-320.png" width="320" height="107" alt="DOT Viagens"></a><nav aria-label="Navegação principal"><a href="/#pesquisa">Voos</a><a href="/#destinos">Destinos</a><a href="/#como-funciona">Como funciona</a></nav><a class="text-btn" href="${WHATSAPP}" target="_blank" rel="noopener">Precisas de ajuda? <span>↗</span></a><a class="account" href="/minhas-viagens"><span>◎</span> Minhas viagens</a></header>`;
+<header class="header wrap"><a href="/" class="brand" aria-label="DOT Viagens início"><img src="/assets/logo-dot-320.png" width="320" height="107" alt="DOT Viagens"></a><nav aria-label="Navegação principal"><a href="/#pesquisa">Voos</a><a href="/#destinos">Destinos</a><a href="/#como-funciona">Como funciona</a></nav><a class="text-btn" href="${WHATSAPP}" target="_blank" rel="noopener">Precisas de ajuda?</a><a class="account" href="/minhas-viagens"><span>◎</span> Minhas viagens</a></header>`;
 
-const bottom = `<footer class="site-footer"><div class="wrap footer-main"><div><a href="/" class="brand" aria-label="DOT Viagens início"><img src="/assets/logo-dot-320.png" width="320" height="107" alt="DOT Viagens" loading="lazy"></a><p>O teu próximo destino<br>começa em kwanzas.</p></div><div><strong>Explora</strong><a href="/#pesquisa">Pesquisar voos</a><a href="/#destinos">Destinos</a><a href="/#como-funciona">Como funciona</a><a href="/blog">Blog</a><a href="/minhas-viagens">Minhas viagens</a></div><div><strong>Estamos por perto</strong><a href="${WHATSAPP}" target="_blank" rel="noopener">Falar com a DOT ↗</a><a href="https://www.dotangola.com" target="_blank" rel="noopener">Conhece a DOT Angola ↗</a></div><div class="footer-note"><span>FEITO PARA QUEM QUER IR MAIS LONGE.</span><p>De Angola.<br>Para o mundo. <b>↗</b></p></div></div><div class="wrap footer-bottom"><span>© 2026 DOT Viagens</span><span>Passagens aéreas em kwanzas · Multicaixa Express e referência</span><span>Angola · Português · Kz</span></div></footer>
+const bottom = `<footer class="site-footer"><div class="wrap footer-main"><div><a href="/" class="brand" aria-label="DOT Viagens início"><img src="/assets/logo-dot-320.png" width="320" height="107" alt="DOT Viagens" loading="lazy"></a><p>O teu próximo destino<br>começa em kwanzas.</p></div><div><strong>Explora</strong><a href="/#pesquisa">Pesquisar voos</a><a href="/#destinos">Destinos</a><a href="/#como-funciona">Como funciona</a><a href="/blog">Blog</a><a href="/minhas-viagens">Minhas viagens</a></div><div><strong>Estamos por perto</strong><a href="${WHATSAPP}" target="_blank" rel="noopener">Falar com a DOT</a><a href="https://www.dotangola.com" target="_blank" rel="noopener">Conhece a DOT Angola</a></div><div class="footer-note"><span>FEITO PARA QUEM QUER IR MAIS LONGE.</span><p>De Angola.<br>Para o mundo.</p></div></div><div class="wrap footer-bottom"><span>© 2026 DOT Viagens</span><span>Passagens aéreas em kwanzas · Multicaixa Express e referência</span><span>Angola · Português · Kz</span></div></footer>
 <a class="wa-float" href="${WHATSAPP}?text=Ol%C3%A1%2C%20DOT%20Viagens!%20Preciso%20de%20ajuda%20com%20uma%20viagem." target="_blank" rel="noopener" aria-label="Falar com a DOT Viagens no WhatsApp" title="Fala connosco no WhatsApp"><img src="/assets/whatsapp-white.svg" width="31" height="31" alt=""></a>
 <script type="module" src="/blog.js"></script><script type="module" src="/ai-chat.js"></script></body></html>
 `;
@@ -112,7 +112,7 @@ ${ld({ '@context': 'https://schema.org', '@graph': graph })}
 <p class="post-meta"><span>Equipa DOT Viagens</span><span><time datetime="${a.published}">${dateLabel(a.published)}</time></span><span>${a.minutes} min de leitura</span></p></header>
 <figure class="post-cover${a.cover.art ? ' art' : ''}">${coverHtml(a.cover)}</figure>
 <div class="post-body">${a.body}
-<aside class="post-cta"><div><strong>${esc(a.cta.title)}</strong><p>${esc(a.cta.text)}</p></div><a class="white-btn" href="${a.cta.href}">${esc(a.cta.label)} <span>↗</span></a></aside>
+<aside class="post-cta"><div><strong>${esc(a.cta.title)}</strong><p>${esc(a.cta.text)}</p></div><a class="white-btn" href="${a.cta.href}">${esc(a.cta.label)}</a></aside>
 ${faqHtml}
 </div>
 </article>
@@ -140,7 +140,7 @@ ${ld({ '@context': 'https://schema.org', '@graph': graph })}
 <nav class="crumbs wrap" aria-label="Estás aqui"><a href="/">Início</a><span aria-hidden="true">›</span><span aria-current="page">Blog</span></nav>
 <section class="blog-hero wrap"><span class="eyebrow">BLOG DOT VIAGENS</span><h1>${esc(blog.title).replace('pagar em kwanzas.', '<em>pagar em kwanzas.</em>')}</h1><p>${esc(blog.lead)}</p></section>
 <section class="wrap blog-list" aria-label="Artigos">${card(featured, ' featured')}<div class="post-grid">${rest.map(a => card(a)).join('')}</div></section>
-<section class="blog-cta wrap"><div><h2>Pronto para a próxima viagem?</h2><p>Compara voos de Luanda para o mundo e paga em kwanzas.</p></div><a class="white-btn" href="/#pesquisa">Pesquisar voos <span>↗</span></a></section>
+<section class="blog-cta wrap"><div><h2>Pronto para a próxima viagem?</h2><p>Compara voos de Luanda para o mundo e paga em kwanzas.</p></div><a class="white-btn" href="/#pesquisa">Pesquisar voos</a></section>
 </main>
 ${bottom}`;
 }

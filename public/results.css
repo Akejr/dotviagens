@@ -131,3 +131,15 @@
 .offer-cabins{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:0 23px 16px;margin-top:-6px}.offer-cabins>span{font-size:9px;letter-spacing:1.2px;text-transform:uppercase;color:#92998b;margin-right:4px}.offer-cabins button{border:1px solid #e8e9e3;background:#fff;border-radius:999px;padding:6px 12px;font:inherit;font-size:11px;color:#4b4f45;cursor:pointer;transition:border-color .15s,background .15s}.offer-cabins button:hover{border-color:#f9a862}.offer-cabins button[aria-pressed=true]{background:#fff2e6;border-color:#ef5900;color:#c84a00;font-weight:600}
 .flight-price.muted-price{color:#9ba293;font-size:16px;letter-spacing:0}
 @media(max-width:700px){.offer-cabins{padding:0 16px 14px;margin-top:-4px}.offer-cabins button{padding:6px 10px;font-size:10.5px}}
+
+/* Date fields of the results page: change the dates and search again without going back. */
+.date-edit{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px;background:#fff;border:1px solid #eceeea;border-radius:14px;padding:14px 16px}
+.date-field{display:flex;flex-direction:column;gap:6px;font-size:11px;color:#8a8e85;font-weight:600}
+.date-field[hidden]{display:none}
+.date-field .date-jump-trigger{min-width:175px;justify-content:space-between}
+.date-edit .primary{padding:11px 24px;border-radius:9px;font-weight:700;font-size:13px;border:0}
+.date-edit .primary:disabled{opacity:.4;cursor:default;box-shadow:none}
+.date-edit .secondary{margin-left:auto;padding:11px 16px}
+.days-panel{margin-top:22px}
+@media(max-width:760px){.date-edit{padding:12px}.date-field{flex:1 1 140px}.date-field .date-jump-trigger{min-width:0;width:100%}.date-edit .primary,.date-edit .secondary{flex:1 1 100%;margin-left:0}}
+.promo-line{margin:4px 0}.promo-line .price-was{display:inline-block;margin:0 0 0 6px}

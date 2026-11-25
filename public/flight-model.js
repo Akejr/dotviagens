@@ -5,6 +5,9 @@ export const toKz=(brl,rate)=>{const cents=BigInt(Math.round(Number(brl)*100)),s
 // DOT service fee in basis points (1100 = 11%), rounded up like on the server. Customers only see the total.
 export const withMarkup=(value,bp)=>{const v=BigInt(Math.round(Number(value))),fee=(v*BigInt(Math.max(0,Math.round(Number(bp)||0)))+9999n)/10000n;return Number(v+fee)};
 export const totalKz=(brl,rate,bp)=>withMarkup(toKz(brl,rate),bp);
+// Black Friday (server/promo.mjs; /api/rate sends the bands as promo, null when it is off): the price in
+// kwanzas before the discount, the discount (rounded down to the kwanza, like the server) and the price to pay.
+export const withPromo=(kz,promo)=>{const full=Math.round(Number(kz)),tier=promo?.tiers?.find(t=>full>=t.from),off=tier&&full>0?Math.floor(full*tier.bp/10000):0;return {full,off,final:full-off}};
 // Without a câmbio the site shows reais: same fee, computed on cents.
 export const totalBrl=(brl,bp)=>withMarkup(Math.round(Number(brl)*100),bp)/100;
 export const duration=v=>`${Math.floor(v/60)}h ${v%60}min`;

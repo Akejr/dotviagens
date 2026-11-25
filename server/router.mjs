@@ -122,8 +122,32 @@ const search = (request, env, ctx, deps) =>
     },
   });
 
-const calendar = (request, env, ctx, deps) =>
-  handleCalendar(request, env, ctx, deps, { onCalendar: info => defer(ctx, logCalendar(env, request, info, deps)) });
+// Credits: each provider calendar request is paid, so one visitor gets a limited number a day (the
+// browser asks for prices only on demand: the "Ver outros dias" strip and the nearest day with flights).
+// Only the requests that reached the provider are counted (they are the logged ones).
+const CALENDAR_PER_VISITOR_DAY = 20;
+async function calendarAllowance(request, env, deps) {
+  if (!hasSupabase(env)) return;
+  let used = 0;
+  try {
+    const { total } = await db(env, deps.fetcher).selectCount('search_logs', {
+      select: 'id',
+      kind: 'eq.calendar',
+      visitor: `eq.${await visitorOf(env, request)}`,
+      created_at: `gte.${new Date(Date.now() - 24 * 3600e3).toISOString()}`,
+      limit: 1,
+    });
+    used = total;
+  } catch {
+    return; // Without the count the visitor is not blocked.
+  }
+  if (used >= CALENDAR_PER_VISITOR_DAY) throw new HttpError(429, 'Já viste muitos preços por dia hoje. Escolhe a data e pesquisa os voos.', 'CALENDAR_LIMIT');
+}
+
+const calendar = async (request, env, ctx, deps) => {
+  await calendarAllowance(request, env, deps);
+  return handleCalendar(request, env, ctx, deps, { onCalendar: info => defer(ctx, logCalendar(env, request, info, deps)) });
+};
 
 const REF = 'DOT-\\d{6}-\\d{5,}';
 const UUID = '[0-9a-fA-F-]{36}';

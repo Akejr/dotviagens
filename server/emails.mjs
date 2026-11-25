@@ -135,7 +135,7 @@ function legHtml(leg, title) {
   return card(`${label(`${title} · ${longDay(first.departure)}`)}
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
       <td width="34%" valign="top"><div style="font:800 26px/1 ${HEAD};color:${INK}">${esc(first.from)}</div><div style="font:700 16px/1.6 ${FONT};color:${INK};margin-top:6px">${esc(clock(first.departure))}</div><div style="font:13px/1.4 ${FONT};color:${MUTED}">${esc(city(first.from))}</div></td>
-      <td width="32%" align="center" valign="middle" style="font:12px/1.5 ${FONT};color:${MUTED}">${stops ? plural(stops, 'escala', 'escalas') : 'Directo'}<br><span style="color:${ORANGE};font-size:14px;letter-spacing:-1px">—— ✈ ——</span><br>${duration(leg.duration)}</td>
+      <td width="32%" align="center" valign="middle" style="font:12px/1.5 ${FONT};color:${MUTED}">${stops ? plural(stops, 'escala', 'escalas') : 'Directo'}<br><span style="color:${ORANGE};font-size:14px;letter-spacing:-1px">—— → ——</span><br>${duration(leg.duration)}</td>
       <td width="34%" align="right" valign="top"><div style="font:800 26px/1 ${HEAD};color:${INK}">${esc(last.to)}</div><div style="font:700 16px/1.6 ${FONT};color:${INK};margin-top:6px">${esc(clock(last.arrival))}${plus > 0 ? `<sup style="font-size:11px;color:${ORANGE}">+${plus}</sup>` : ''}</div><div style="font:13px/1.4 ${FONT};color:${MUTED}">${esc(city(last.to))}</div></td>
     </tr></table>
     <div style="font:12px/1.5 ${FONT};color:${MUTED};margin-top:14px;padding-top:12px;border-top:1px solid ${LINE}">${flights} · ${esc(leg.cabin || 'Económica')}</div>`);

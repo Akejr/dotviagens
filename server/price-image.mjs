@@ -9,6 +9,7 @@ import { requireAdmin } from './auth.mjs';
 import { isPlace } from './places.mjs';
 import { CABINS } from './flights.mjs';
 import { currentRate, currentMarkup, priceAoa, luandaToday } from './rates.mjs';
+import { withPromo } from './promo.mjs';
 import { pausedUntil, pauseProvider, pauseMessage } from './provider.mjs';
 import { searchApiOn, searchApiSpanCalendar } from './searchapi.mjs';
 import { safeLogo } from './offers.mjs';
@@ -29,7 +30,7 @@ async function pricing(env, deps) {
   if (!rate?.rate) throw new HttpError(409, 'Define primeiro o câmbio do dia em Câmbio e preço.', 'NO_RATE');
   return { rate: rate.rate, markupBp: markup.markupBp };
 }
-const kzOf = (brl, prices) => priceAoa(brl, prices.rate, prices.markupBp).amountAoa;
+const kzOf = (brl, prices) => withPromo(priceAoa(brl, prices.rate, prices.markupBp)).amountAoa;
 
 function travellers(body, fail) {
   const passengers = body.passengers ?? 1;

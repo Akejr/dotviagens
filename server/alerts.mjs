@@ -12,6 +12,7 @@ import { validate } from './flights.mjs';
 import { isGroup } from './places.mjs';
 import { signOffer, signedQuery } from './offers.mjs';
 import { currentRate, currentMarkup, priceAoa } from './rates.mjs';
+import { withPromo } from './promo.mjs';
 import { smsText, ascii } from './sms.mjs';
 import { sendAndRecord } from './notify.mjs';
 import { timingSafeEqual } from './crypto.mjs';
@@ -118,7 +119,7 @@ export async function createAlert(request, env, ctx, deps) {
     limit: 10,
   }).catch(() => []);
   const baselineBrl = Math.min(amount, ...recent.map(row => Number(row.min_price_brl)).filter(value => value > 0));
-  const baselineKz = priceAoa(baselineBrl, prices.rate, prices.markupBp).amountAoa;
+  const baselineKz = withPromo(priceAoa(baselineBrl, prices.rate, prices.markupBp)).amountAoa;
 
   const mine = await store.select('price_alerts', { select: '*', customer_id: `eq.${session.customer.id}`, status: 'eq.active', order: 'created_at.desc', limit: 50 });
   const existing = mine.find(row => row.origin === q.origin && row.destination === q.destination && row.departure_date === q.departureDate
@@ -166,7 +167,7 @@ export async function checkAlerts(env, q, result, deps, request) {
     if (!prices) return 0;
     const minBrl = Math.min(...result.offers.map(offer => Number(offer.amount)).filter(value => value > 0));
     if (!Number.isFinite(minBrl)) return 0;
-    const currentKz = priceAoa(minBrl, prices.rate, prices.markupBp).amountAoa;
+    const currentKz = withPromo(priceAoa(minBrl, prices.rate, prices.markupBp)).amountAoa;
     const base = request ? publicOrigin(request, env) : env.PUBLIC_BASE_URL;
     let sent = 0;
     for (const alert of alerts) {

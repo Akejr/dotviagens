@@ -7,6 +7,7 @@ import { db } from './supabase.mjs';
 import { requireUser, secret } from './auth.mjs';
 import { verifyItinerary, makeQuote, readQuote, QUOTE_TTL_MS } from './offers.mjs';
 import { currentRate, currentMarkup, priceAoa } from './rates.mjs';
+import { withPromo, promoInfo } from './promo.mjs';
 import { validatePassengers } from './passengers.mjs';
 import { isGroup } from './places.mjs';
 import { hasWiza, createCharge, paymentStatus, transactionInfo, wizaMessage } from './wiza.mjs';
@@ -73,7 +74,8 @@ async function priceFor(env, deps, verified) {
   if (!rate?.rate) {
     throw new HttpError(503, 'A compra está temporariamente indisponível: o câmbio do dia ainda não foi definido.', 'NO_RATE');
   }
-  const price = priceAoa(verified.priceBrl, rate.rate, markup.markupBp);
+  // withPromo: the campaign discount (server/promo.mjs); without a campaign amountAoa is unchanged.
+  const price = withPromo(priceAoa(verified.priceBrl, rate.rate, markup.markupBp));
   if (price.amountAoa < MIN_KZ) throw new HttpError(400, 'Valor demasiado baixo para pagamento.', 'AMOUNT_TOO_LOW');
   return { rate, ...price };
 }
@@ -145,16 +147,20 @@ export async function quote(request, env, ctx, deps) {
   const body = await readJson(request, 200000);
   const key = offerSecret(env);
   const verified = await verifyItinerary(key, body.itinerary);
-  const { rate, baseAoa, feeAoa, amountAoa, markupBp } = await priceFor(env, deps, verified);
+  const { rate, baseAoa, feeAoa, amountAoa, fullAoa, discountAoa, markupBp } = await priceFor(env, deps, verified);
   const expiresAt = Date.now() + QUOTE_TTL_MS;
   const quoteToken = await makeQuote(key, {
-    v: QUOTE_VERSION, h: await itineraryKey(body.itinerary), priceBrl: verified.priceBrl, rate: rate.rate, baseAoa, feeAoa, amountAoa, markupBp, exp: expiresAt,
+    v: QUOTE_VERSION, h: await itineraryKey(body.itinerary), priceBrl: verified.priceBrl, rate: rate.rate, baseAoa, feeAoa, amountAoa, fullAoa, discountAoa, markupBp, exp: expiresAt,
   });
   // The customer sees only the final total; the breakdown stays in the signed token and the admin.
   return json({
     quoteToken,
     expiresAt: new Date(expiresAt).toISOString(),
     amountAoa,
+    // Before the campaign discount (equal to amountAoa when there is none).
+    fullAoa,
+    discountAoa,
+    promoLabel: discountAoa > 0 ? promoInfo()?.label || null : null,
     roundTrip: verified.roundTrip,
     query: publicQuery(verified.query),
     outbound: publicLeg(verified.outbound.stored),
@@ -262,6 +268,7 @@ export async function createBooking(request, env, ctx, deps) {
       inbound: verified.inbound?.stored ?? null,
       query: q,
       searchedAt: { outbound: verified.outbound.searchedAt, inbound: verified.inbound?.searchedAt ?? null },
+      ...(quoted.discountAoa > 0 ? { promo: { label: promoInfo()?.label || 'Promoção', fullAoa: quoted.fullAoa, discountAoa: quoted.discountAoa } } : {}),
     },
     price_brl: verified.priceBrl,
     exchange_rate: quoted.rate,
@@ -294,7 +301,7 @@ export async function createBooking(request, env, ctx, deps) {
     }).catch(() => {});
   }
   await logEvent(store, booking.id, 'create', 'booking_created', {
-    amountAoa: quoted.amountAoa, baseAoa: quoted.baseAoa, feeAoa: quoted.feeAoa, markupBp: quoted.markupBp, rate: quoted.rate, priceBrl: verified.priceBrl, paymentMethod,
+    amountAoa: quoted.amountAoa, discountAoa: quoted.discountAoa || 0, baseAoa: quoted.baseAoa, feeAoa: quoted.feeAoa, markupBp: quoted.markupBp, rate: quoted.rate, priceBrl: verified.priceBrl, paymentMethod,
   });
 
   if (paymentMethod === 'manual') {

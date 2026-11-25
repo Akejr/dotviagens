@@ -53,6 +53,7 @@ export function loadPricing() {
     .then(data => ({
       rate: Number(data?.rate) > 0 ? Number(data.rate) : null,
       markupBp: Number.isInteger(data?.markupBp) ? data.markupBp : FALLBACK_MARKUP_BP,
+      promo: Array.isArray(data?.promo?.tiers) ? { label: String(data.promo.label || 'Promoção'), tiers: data.promo.tiers } : null,
     }));
   return pricingTask;
 }

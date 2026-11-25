@@ -76,10 +76,13 @@ function legSummary(leg, label) {
     <span class="trip-airlines">${esc(city(first.from))} → ${esc(city(last.to))} · ${esc(airlineNames(leg))}</span></div>`;
 }
 
-function tripCard({ passengers, outbound, inbound, amountAoa, totalLabel, note = '' }) {
+// Black Friday: the price before the discount and what the customer saves (no percentage); promo = {label, fullAoa, discountAoa}.
+const promoBefore = promo => (promo?.discountAoa > 0 ? `<div class="promo-line"><span class="promo-tag">${esc(promo.label)}</span> <s class="price-was">${formatKz(promo.fullAoa)}</s></div>` : '');
+const promoAfter = promo => (promo?.discountAoa > 0 ? `<div class="promo-line"><span class="promo-save">Poupas ${formatKz(promo.discountAoa)}</span></div>` : '');
+function tripCard({ passengers, outbound, inbound, amountAoa, totalLabel, note = '', promo = null }) {
   return `<div class="trip-card"><div class="trip-card-head"><span class="eyebrow">A TUA VIAGEM</span><span>${inbound ? 'Ida e volta' : 'Só ida'} · ${typeof passengers === 'string' ? esc(passengers) : plural(passengers, 'passageiro', 'passageiros')}</span></div>
     ${legSummary(outbound, 'IDA')}${inbound ? legSummary(inbound, 'VOLTA') : ''}
-    <div class="trip-total"><span>${esc(totalLabel)}</span><strong>${formatKz(amountAoa)}</strong>${note ? `<p>${note}</p>` : ''}</div></div>`;
+    <div class="trip-total"><span>${esc(totalLabel)}</span>${promoBefore(promo)}<strong>${formatKz(amountAoa)}</strong>${promoAfter(promo)}${note ? `<p>${note}</p>` : ''}</div></div>`;
 }
 
 function segmentsHtml(leg) {
@@ -127,6 +130,7 @@ function renderAside() {
     outbound: q.outbound,
     inbound: q.inbound,
     amountAoa: q.amountAoa,
+    promo: q.discountAoa > 0 ? { label: q.promoLabel || 'Promoção', fullAoa: q.fullAoa, discountAoa: q.discountAoa } : null,
     totalLabel: `Total para ${travellers(q.query)}`,
     note: `Preço final, com taxas incluídas.${q.expiresAt ? ` Garantido até às ${esc(clockOf(q.expiresAt))}.` : ''}`,
   });

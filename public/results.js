@@ -3,7 +3,7 @@ import {loadAirports} from './airports.js';
 import {stickyHeader,api,auth,formatPhone} from './api.js';
 import {icon} from './icons.js';
 import {mountOtp} from './otp-widget.js';
-import {money,moneyKz,totalKz,totalBrl,duration,dateText,availableAirlines,filterOffers,itineraryTotal,signature,resolveReturns} from './flight-model.js';
+import {money,moneyKz,totalKz,totalBrl,withPromo,duration,dateText,availableAirlines,filterOffers,itineraryTotal,signature,resolveReturns} from './flight-model.js';
 import {loadPricing,openCalendarPopover,daysBetweenIso,monthPrices,standardTripDays,adultsOf} from './price-calendar.js';
 import {airlineMark,airlineNames,legAirlines,legTimeline} from './itinerary-ui.js';
 import {MAIN_AIRPORTS} from './main-airports.js';
@@ -46,7 +46,11 @@ async function loadCabin(o,cabin){const tag=`${o.id}|${cabin}`;if(cabinLoading.h
 let selected=query.departureDate,windowStart,sort='price',airlines=new Set(),direct=params.get('stops')==='1',generation=0,visible=8,stage='outbound',outbound=null,inbound=null,returnData=null,returnError=null,names={},airportNames={},pricing=null,outboundMeta=null,inboundMeta=null;
 // Prices arrive in BRL and are shown as the final price: câmbio do dia + DOT fee, in kwanzas
 // (in reais + fee while no câmbio is set). The fee is never shown on its own.
-const price=v=>pricing?.rate?moneyKz(totalKz(v,pricing.rate,pricing.markupBp)):money(totalBrl(v,pricing?.markupBp||0));
+const kzParts=v=>withPromo(totalKz(v,pricing.rate,pricing.markupBp),pricing.promo);
+const price=v=>pricing?.rate?moneyKz(kzParts(v).final):money(totalBrl(v,pricing?.markupBp||0));
+// Black Friday (server/promo.mjs, bands in pricing.promo; null when the campaign is off): the price before the
+// discount and what the customer saves. Only with a discount; never the percentage.
+const promoOf=v=>{if(!pricing?.rate||!pricing.promo)return null;const p=kzParts(v);return p.off>0?p:null};
 const sid=(()=>{try{let v=sessionStorage.getItem('dot-sid');if(!v){v=crypto.randomUUID();sessionStorage.setItem('dot-sid',v)}return v}catch{return null}})();
 // One id per search on this page: the admin groups its dates and returns in one row.
 const jid=(()=>{const k='dot-jid:'+[query.origin,query.destination,query.departureDate,query.returnDate||'',query.passengers,query.children||0,query.cabin].join('|');try{const saved=JSON.parse(sessionStorage.getItem(k)||'null');const id=saved?.id&&saved.at>Date.now()-1800000?saved.id:crypto.randomUUID();sessionStorage.setItem(k,JSON.stringify({id,at:Date.now()}));return id}catch{return null}})();
@@ -88,26 +92,35 @@ const calendarKey=(cq,month)=>JSON.stringify([cq.origin,cq.destination,cq.cabin,
 function loadMonth(cq,month,after=()=>{}){const k=calendarKey(cq,month);const now=calendarState.get(k);if(now&&now!=='error')return;if(now==='error'&&(calendarFailures.get(k)||0)>=2)return;calendarState.set(k,'loading');monthPrices(cq,month,partial=>{const now=calendarState.get(k);if(now!=='loading'&&!now?.loading)return;partial.loading=true;calendarState.set(k,partial);if(stage!=='summary')renderDates()}).then(map=>calendarState.set(k,map),()=>{calendarFailures.set(k,(calendarFailures.get(k)||0)+1);calendarState.set(k,'error')}).finally(()=>{if(stage!=='summary'){renderDates();after()}})}
 // A failed strip range is asked again once, a few seconds later (a slow provider answer).
 const calendarFailures=new Map();
-const rangeOf=()=>{const list=dates();return list.length?{from:list[0],to:list.at(-1)}:null};
-function loadCalendar(){if(stage==='summary'||!windowStart)return;const sq=stripQuery(),range=rangeOf();if(!sq||!range)return;const k=calendarKey(sq,range);if(calendarState.get(k)!=='error')return loadMonth(sq,range);if((calendarFailures.get(k)||0)<2&&!retryTimer)retryTimer=setTimeout(()=>{retryTimer=null;loadMonth(sq,range)},4000)}
-let retryTimer=null;
+// "Ver outros dias": the strip of 5 days with indicative prices is asked only when the customer opens it
+// (one request for up to 14 days around the window; the arrows ask again only for days not loaded yet).
+let stripOpen=false,retryTimer=null;const stripRanges=[];
+const stripSig=()=>{const q=stripQuery();return q?calendarKey(q,''):null};
+const rangeLive=r=>{const s=calendarState.get(r.k);return s==='loading'||s instanceof Map};
+function stripAsk(){if(!stripOpen||stage==='summary'||!windowStart)return;const sq=stripQuery(),list=dates();if(!sq||!list.length)return;const sig=stripSig();if(list.every(d=>stripRanges.some(r=>r.sig===sig&&d>=r.from&&d<=r.to&&rangeLive(r))))return;let from=add(list[0],-4);if(from<firstDate())from=firstDate();let to=add(from,13);if(to>lastDate())to=lastDate();if(to<from)return;const range={from,to},k=calendarKey(sq,range),state=calendarState.get(k);if(state==='error'){if((calendarFailures.get(k)||0)<2&&!retryTimer)retryTimer=setTimeout(()=>{retryTimer=null;calendarState.delete(k);renderDates()},4000);return}if(state==='loading'||state instanceof Map)return;if(!stripRanges.some(r=>r.k===k))stripRanges.push({sig,from,to,k});loadMonth(sq,range)}
 // Total for every adult (number), 'loading', 'error' or null when the calendar has no price for the day.
-// The strip's own range first, then a month already loaded by the calendar popover or the no-flights card.
-// A month that arrives in parts is a Map marked .loading until the last part: its missing days still load.
+// A range that arrives is a Map: its missing days have no price.
 function priceIn(cq,period,d){const state=calendarState.get(calendarKey(cq,period));if(!(state instanceof Map))return state||null;const amount=state.get(d)?.amount;return Number.isFinite(amount)?amount*adultsOf(cq):(state.loading?'loading':null)}
-function calendarPrice(d){const sq=stripQuery();if(!sq)return null;const range=rangeOf();const own=range&&d>=range.from&&d<=range.to?priceIn(sq,range,d):null;if(Number.isFinite(own))return own;const month=priceIn(calendarQuery(),d.slice(0,7),d);return Number.isFinite(month)?month:own??month}
-// A day without flights points to the nearest day that has them (up to 30 days either side, inside
-// the allowed dates): a day already searched with flights (exact price) or a day of the price
-// calendar (indicative). Days already searched without flights are skipped. The calendar of this
-// month and the next is asked when missing (1 request each, shared 6 hours).
-const SUGGEST_DAYS=30;
-function nearestDay(){const from=activeDate();if(!from)return {pending:false,day:null};let pending=false,best=null;for(let n=1;n<=SUGGEST_DAYS&&!best;n++)for(const d of [add(from,n),add(from,-n)]){if(best||d<firstDate()||d>lastDate())continue;const e=entry(d),found=e?.data?.offers?.length?Math.min(...e.data.offers.map(o=>o.amount)):null;if(found!==null){best={date:d,amount:found,exact:true};continue}if(e?.data)continue;const c=calendarPrice(d);if(Number.isFinite(c))best={date:d,amount:c,exact:false};else if(c==='loading')pending=true}return {pending,day:best}}
-function askNearbyMonths(){const cq=calendarQuery();if(!cq||stage==='summary'||!activeDate())return;const months=new Set([add(activeDate(),-SUGGEST_DAYS).slice(0,7),activeDate().slice(0,7),add(activeDate(),SUGGEST_DAYS).slice(0,7)]);for(const m of months)if(`${m}-31`>=firstDate()&&`${m}-01`<=lastDate())loadMonth(cq,m,renderOffers)}
-function noFlightsCard(){askNearbyMonths();const {pending,day}=nearestDay();
- const which=stage==='return'?'regresso':'voo';
- if(day){const label=new Intl.DateTimeFormat('pt-PT',{weekday:'long',day:'numeric',month:'long',timeZone:'UTC'}).format(new Date(day.date+'T12:00:00Z'));return `<div class="state-card no-flights"><h3>Não há voos neste dia.</h3><p>Mas há ${which==='voo'?'voos':'regressos'} a <b>${esc(label)}</b>, ${day.exact?'desde':'desde cerca de'} <b>${price(day.amount)}</b>${day.exact?'':' (preço indicativo)'}.</p><button class="primary" data-goto="${day.date}">Ver voos de ${esc(dateText(day.date))}</button></div>`}
- if(pending)return `<div class="state-card no-flights"><span class="spinner"></span><h3>Não há voos neste dia.</h3><p>A procurar o dia mais próximo com voos…</p></div>`;
- return `<div class="state-card no-flights"><h3>Não há voos neste dia.</h3><p>Não encontrámos voos nos ${SUGGEST_DAYS} dias antes e depois. Experimenta outras datas ou fala connosco: a equipa DOT pode montar a viagem.</p><a class="primary" href="https://wa.me/244931343433" target="_blank" rel="noopener">Falar com a DOT no WhatsApp</a></div>`}
+function calendarPrice(d){const sq=stripQuery(),sig=stripSig();let last=null;for(const r of stripRanges){if(r.sig!==sig||d<r.from||d>r.to)continue;const v=priceIn(sq,{from:r.from,to:r.to},d);if(Number.isFinite(v))return v;if(v)last=v}return last}
+// A day without flights: the nearest day that has them. One calendar request of 14 days around the day
+// (2 more further away only when it finds nothing), then one real search of the nearest priced day, kept in
+// the page cache: the button that takes the customer there opens it without searching again.
+const nearby=new Map();
+const nearbyKey=()=>key(queryFor(activeDate()));
+async function findNearby(){const from=activeDate();if(!from)return;const k=nearbyKey();if(nearby.has(k))return;nearby.set(k,{state:'loading'});const sq=stripQuery();
+ const clip=(a,b)=>{const f=a<firstDate()?firstDate():a,t=b>lastDate()?lastDate():b;return f<=t?{from:f,to:t}:null};
+ let result={state:'none'};
+ try{outer:for(const batch of [[clip(add(from,-6),add(from,7))],[clip(add(from,8),add(from,21)),clip(add(from,-20),add(from,-7))]]){const ranges=batch.filter(Boolean);if(!ranges.length)continue;
+   const maps=await Promise.all(ranges.map(r=>monthPrices(sq,r).catch(()=>new Map())));
+   const days=[...new Set(maps.flatMap(m=>[...m.keys()]))].filter(d=>d!==from&&d>=firstDate()&&d<=lastDate()).sort((a,b)=>Math.abs(dayShift(from,a))-Math.abs(dayShift(from,b))||a.localeCompare(b));
+   for(const d of days.slice(0,2)){await fetchDate(d);const e=entry(d);if(e?.data?.offers?.length){result={state:'found',date:d,amount:Math.min(...e.data.offers.map(o=>o.amount))};break outer}}}
+ }catch{}
+ nearby.set(k,result);if(stage!=='summary'&&nearbyKey()===k)renderOffers()}
+function noFlightsCard(){findNearby();const n=nearby.get(nearbyKey());
+ const which=stage==='return'?'regressos':'voos';
+ if(n?.state==='found'){const label=new Intl.DateTimeFormat('pt-PT',{weekday:'long',day:'numeric',month:'long',timeZone:'UTC'}).format(new Date(n.date+'T12:00:00Z'));return `<div class="state-card no-flights"><h3>Não há voos neste dia.</h3><p>Mas há ${which} a <b>${esc(label)}</b>, desde <b>${price(n.amount)}</b>.</p><button class="primary" data-goto="${n.date}">Ver voos de ${esc(dateText(n.date))}</button></div>`}
+ if(n?.state==='none')return `<div class="state-card no-flights"><h3>Não há voos neste dia.</h3><p>Não encontrámos voos nas semanas à volta desta data. Experimenta outras datas ou fala connosco: a equipa DOT pode montar a viagem.</p><a class="primary" href="https://wa.me/244931343433" target="_blank" rel="noopener">Falar com a DOT no WhatsApp</a></div>`;
+ return `<div class="state-card no-flights"><span class="spinner"></span><h3>Não há voos neste dia.</h3><p>A procurar o dia mais próximo com voos…</p></div>`}
 
 function renderHeader(){
  const cities=codes=>{const list=[...new Set(codes.map(placeName))];return list.length>1?`${list.slice(0,-1).join(', ')} e ${list.at(-1)}`:list[0]};
@@ -122,7 +135,10 @@ function renderHeader(){
  $('#stage-title').textContent=stage==='return'?`Escolhe a volta · ${dateText(query.returnDate)}`:'Escolhe o voo de ida';
 }
 function renderDates(){
- loadCalendar();
+ renderEdit();
+ $('#days-panel').hidden=!stripOpen||stage==='summary';const toggle=$('#show-days');toggle.setAttribute('aria-expanded',String(stripOpen));toggle.textContent=stripOpen?'Ocultar outros dias':'Ver outros dias';
+ if(!stripOpen)return;
+ stripAsk();
  $('#date-strip').innerHTML=dates().map(d=>{const e=entry(d),offers=filtered(e?.data),min=offers.length?Math.min(...offers.map(o=>o.amount)):null;const label=new Intl.DateTimeFormat('pt-PT',{weekday:'short',day:'2-digit',month:'short',timeZone:'UTC'}).format(new Date(d+'T12:00:00Z'));let body,kind='';
   if(min!==null)body=`<small>a partir de</small> ${price(min)}`;
   else if(datePending.has(key(queryFor(d))))body='A consultar…';
@@ -130,8 +146,17 @@ function renderDates(){
   else if(e?.error&&d===activeDate())body='Tentar novamente';
   else{const c=calendarPrice(d);if(Number.isFinite(c)){body=`<small>indicativo</small> ≈ ${price(c)}`;kind=' indicative'}else{body=c==='loading'?'A carregar…':'Ver preço';kind=' ask'}}
   return `<button class="date-card${d===activeDate()?' active':''}${kind}" data-date="${d}" aria-pressed="${d===activeDate()}"><span>${esc(label)}</span><strong>${body}</strong></button>`}).join('');
- $('#previous-dates').disabled=windowStart<=firstDate();$('#next-dates').disabled=add(windowStart,5)>lastDate();$('#date-jump-value').textContent=dateText(activeDate());$('#date-jump-label').textContent=stage==='return'?'Data de volta':'Data de ida';
+ $('#previous-dates').disabled=windowStart<=firstDate();$('#next-dates').disabled=add(windowStart,5)>lastDate();
 }
+// Date fields: change the dates and search again here, without going back to the home page.
+const draft={dep:null,ret:null};let draftDirty=false;
+const draftLength=()=>draft.ret?Math.max(0,daysBetweenIso(draft.dep,draft.ret)):0;
+function renderEdit(){if(!draftDirty){draft.dep=selected;draft.ret=query.returnDate}$('#edit-out-value').textContent=dateText(draft.dep);$('#edit-ret-field').hidden=!query.returnDate;if(query.returnDate)$('#edit-ret-value').textContent=dateText(draft.ret);$('#edit-search').disabled=draft.dep===selected&&draft.ret===query.returnDate}
+$('#edit-out').onclick=e=>openCalendarPopover(e.currentTarget,{value:draft.dep,min:today,max:maxDate,heading:'Quando começa a viagem?',foot:'Escolhe as datas e toca em Pesquisar.',onSelect:d=>{const keep=draftLength();draft.dep=d;if(draft.ret){const r=add(d,keep);draft.ret=r>maxDate?maxDate:r}draftDirty=true;renderEdit()}});
+$('#edit-ret').onclick=e=>openCalendarPopover(e.currentTarget,{value:draft.ret,min:draft.dep,max:maxDate,heading:'Quando regressas?',outboundDay:draft.dep,foot:'A volta é no dia da ida ou depois.',onSelect:d=>{draft.ret=d;draftDirty=true;renderEdit()}});
+function applyDates(){if(!draft.dep||(query.returnDate&&!draft.ret)||(draft.ret&&draft.ret<draft.dep))return;const dep=draft.dep,ret=query.returnDate?draft.ret:null;draftDirty=false;visible=8;airlines.clear();inbound=null;cardCabin.clear();if(stage==='return'&&dep===selected){query.returnDate=ret;updateURL();loadReturn();return}restorePlace();selected=dep;query.departureDate=dep;query.returnDate=ret;outbound=null;stage='outbound';windowStart=add(dep,-2);if(windowStart<firstDate())windowStart=firstDate();updateURL();loadSelected()}
+$('#edit-search').onclick=applyDates;
+$('#show-days').onclick=()=>{stripOpen=!stripOpen;renderDates()};
 function renderAirlines(){const all=availableAirlines(currentData()?.offers||[],direct);for(const a of airlines)if(!all.has(a))airlines.delete(a);$('#airline-filters').innerHTML=all.size?[...all].sort(([a],[b])=>a.localeCompare(b)).map(([a,n])=>`<label class="filter-option"><input type="checkbox" data-airline="${esc(a)}" ${airlines.has(a)?'checked':''}><span>${esc(a)}</span><small class="airline-count">${n}</small></label>`).join(''):'<p class="muted">Nenhuma companhia disponível nesta pesquisa.</p>'}
 const placeName=c=>names[c]||CITY_BY_CODE.get(c)?.name||(isCountry(c)?regionNames.of(c)||c:c),airportName=c=>airportNames[c]||'';
 function segments(o){return legTimeline(o,{city:placeName,airport:airportName})}
@@ -141,7 +166,8 @@ function brand(o){const n=legAirlines(o).length;return `<div class="airline-bran
 // another class, the same flight (same flight numbers and times) is looked up in that class's search.
 function cabinState(o){const cabin=stage==='outbound'?(cardCabin.get(o.id)||query.cabin):query.cabin;if(cabin===query.cabin)return {cabin,offer:o,source:''};const e=cache.get(key(classQuery(cabin)));const listed=e?.data?.offers.find(sameFlight(o));if(listed)return {cabin,offer:listed,source:''};const airlines=airlinesOf(o),f=airlines?cache.get(key(classQuery(cabin,airlines))):null,found=f?.data?.offers.find(sameFlight(o));if(found)return {cabin,offer:found,source:airlines};if(cabinLoading.has(`${o.id}|${cabin}`)||(!e?.data&&!e?.error))return {cabin,loading:true};if(e?.error&&!e?.data)return {cabin,error:e.error};return {cabin,offer:null,missing:true}}
 function card(o,i){const first=o.segments[0],last=o.segments.at(-1),st=cabinState(o),shown=st.offer,canSelect=!!shown&&(stage!=='outbound'||!query.returnDate||!!shown.departureToken);
- const priceHtml=shown?`<div class="flight-price">${price(shown.amount)}</div>`:`<div class="flight-price muted-price">${st.loading?'A consultar…':'Indisponível'}</div>`;
+ const parts=shown?promoOf(shown.amount):null;
+ const priceHtml=shown?(parts?`<div class="promo-wrap"><span class="promo-tag">${esc(pricing.promo.label)}</span><s class="price-was">${moneyKz(parts.full)}</s><div class="flight-price">${moneyKz(parts.final)}</div><span class="promo-save">Poupas ${moneyKz(parts.off)}</span></div>`:`<div class="flight-price">${price(shown.amount)}</div>`):`<div class="flight-price muted-price">${st.loading?'A consultar…':'Indisponível'}</div>`;
  const note=st.loading?`A consultar ${CABIN_LABEL[st.cabin]}`:st.missing?`Sem ${CABIN_LABEL[st.cabin]} neste voo`:st.error?'Tenta novamente':`${query.returnDate?(stage==='outbound'?'Ida e volta · a partir de':'Total ida e volta'):'Total só ida'}<br>Para ${travellersText()}`;
  const cabins=stage==='outbound'?`<div class="offer-cabins" role="group" aria-label="Classe deste voo"><span>Classe</span>${Object.entries(CABIN_LABEL).map(([value,label])=>`<button type="button" data-card-cabin="${value}" data-offer="${esc(o.id)}" aria-pressed="${value===st.cabin}">${label}</button>`).join('')}</div>`:'';
  return `<article class="offer-card"><div class="offer-main">${brand(shown||o)}<div><div class="flight-times">${esc(first.departure.slice(11))} <span>→</span> <em>${esc(last.arrival.slice(11))}${plusDay(first.departure,last.arrival)}</em></div><div class="flight-dates">${esc(first.from)} → ${esc(last.to)} · ${dateText(first.departure.slice(0,10))}${first.departure.slice(0,10)!==last.arrival.slice(0,10)?' → '+dateText(last.arrival.slice(0,10)):''}</div><div class="flight-duration">${duration(o.duration)} · <b>${o.stops?o.stops+' escala(s)':'Directo'}</b> · Horários locais</div></div><div class="price-column">${priceHtml}<small>${note}</small><button class="primary select-flight" data-select="${esc(shown?.id||o.id)}" data-cabin="${st.cabin}" data-airlines="${esc(st.source||'')}" ${canSelect?'':'disabled'}>${canSelect?(stage==='return'?'Escolher volta':'Seleccionar'):st.loading?'A consultar…':'Indisponível'}</button></div></div>${cabins}<div class="offer-bottom"><span class="offer-badge">${stage==='return'?'Compatível com a ida seleccionada':'Tarifa sujeita a disponibilidade'}</span><button class="route-toggle" aria-expanded="false" aria-controls="route-${i}">Ver percurso <span>⌄</span></button></div><div class="route-details" id="route-${i}" hidden><h3>${stage==='return'?'Percurso de volta':'Percurso de ida'} · ${duration(o.duration)}</h3>${segments(shown||o)}<p class="route-disclaimer">Confirma as condições de bagagem e de alteração com a companhia antes de comprar.</p></div></article>`}
@@ -152,7 +178,9 @@ function renderOffers(){const e=stage==='return'?{data:returnData,error:returnEr
  $('#offers').innerHTML=offers.length?offers.slice(0,visible).map(card).join(''):e.data.offers?.length?'<div class="state-card"><h3>Não há voos para esta combinação.</h3><p>Experimenta outras datas ou limpa os filtros.</p><button class="primary" id="reset-empty">Limpar filtros</button></div>':noFlightsCard();
  $('#load-more').hidden=visible>=offers.length;$('#load-more').textContent=`Ver mais opções (${Math.max(0,offers.length-visible)} restantes)`;
 }
-function renderSummary(){if(stage!=='summary')return;const total=itineraryTotal(outbound,inbound,!!query.returnDate);$('#trip-summary').innerHTML=`<div class="summary-heading"><span class="eyebrow">A TUA PRÓXIMA VIAGEM</span><h2>Tudo pronto para rever.</h2><p>Confere os voos seleccionados e o preço do itinerário.</p></div><div class="summary-grid"><div>${[outbound,...(inbound?[inbound]:[])].map((o,i)=>`<article class="summary-leg"><div class="summary-leg-head"><h3>${i?'Volta':'Ida'} · ${dateText(i?query.returnDate:selected)}</h3><button class="secondary" data-step="${i?'return':'outbound'}">Alterar</button></div>${segments(o)}</article>`).join('')}</div><aside class="total-panel"><span>Total da viagem</span><strong>${price(total)}</strong><p>${query.returnDate?'Ida e volta':'Só ida'} · ${travellersText()} · ${CABIN_LABEL[query.cabin]}<br>${pricing?.rate?'Preço final em kwanzas para todos os passageiros, com taxas incluídas.':'Preço em reais para todos os passageiros, com taxas incluídas.'}</p><div class="total-divider"></div><p>O preço é confirmado antes do pagamento. A DOT emite o bilhete depois de o pagamento ser confirmado.</p><button class="primary" id="buy-trip" ${canBuy()?'':'disabled'}>Comprar esta viagem</button>${canBuy()?'':`<p class="buy-note">${pricing?.rate?'Actualiza a pesquisa para comprar esta viagem.':'A compra fica disponível quando o câmbio do dia for definido.'}</p>`}<button class="secondary" id="download-trip">Guardar itinerário</button><button class="secondary" data-step="${query.returnDate?'return':'outbound'}">Comparar outras opções</button></aside></div>`}
+const totalPromo=v=>{const p=promoOf(v);return p?`<div class="promo-line"><span class="promo-tag">${esc(pricing.promo.label)}</span> <s class="price-was">${moneyKz(p.full)}</s></div>`:''};
+const totalSave=v=>{const p=promoOf(v);return p?`<div class="promo-line"><span class="promo-save">Poupas ${moneyKz(p.off)}</span></div>`:''};
+function renderSummary(){if(stage!=='summary')return;const total=itineraryTotal(outbound,inbound,!!query.returnDate);$('#trip-summary').innerHTML=`<div class="summary-heading"><span class="eyebrow">A TUA PRÓXIMA VIAGEM</span><h2>Tudo pronto para rever.</h2><p>Confere os voos seleccionados e o preço do itinerário.</p></div><div class="summary-grid"><div>${[outbound,...(inbound?[inbound]:[])].map((o,i)=>`<article class="summary-leg"><div class="summary-leg-head"><h3>${i?'Volta':'Ida'} · ${dateText(i?query.returnDate:selected)}</h3><button class="secondary" data-step="${i?'return':'outbound'}">Alterar</button></div>${segments(o)}</article>`).join('')}</div><aside class="total-panel"><span>Total da viagem</span>${totalPromo(total)}<strong>${price(total)}</strong>${totalSave(total)}<p>${query.returnDate?'Ida e volta':'Só ida'} · ${travellersText()} · ${CABIN_LABEL[query.cabin]}<br>${pricing?.rate?'Preço final em kwanzas para todos os passageiros, com taxas incluídas.':'Preço em reais para todos os passageiros, com taxas incluídas.'}</p><div class="total-divider"></div><p>O preço é confirmado antes do pagamento. A DOT emite o bilhete depois de o pagamento ser confirmado.</p><button class="primary" id="buy-trip" ${canBuy()?'':'disabled'}>Comprar esta viagem</button>${canBuy()?'':`<p class="buy-note">${pricing?.rate?'Actualiza a pesquisa para comprar esta viagem.':'A compra fica disponível quando o câmbio do dia for definido.'}</p>`}<button class="secondary" id="download-trip">Guardar itinerário</button><button class="secondary" data-step="${query.returnDate?'return':'outbound'}">Comparar outras opções</button></aside></div>`}
 function render(){renderHeader();renderDates();renderAirlines();renderOffers();renderSummary()}
 async function fetchDate(d){
  const q=queryFor(d),k=key(q),chosen=outbound,kind=stage==='return'?(d===query.returnDate?'return':'return-prefetch'):(d===selected?'view':'prefetch');
@@ -166,14 +194,13 @@ async function fetchDate(d){
 }
 async function loadSelected(){const gen=++generation;render();const p=fetchDate(selected);renderDates();await p;if(gen!==generation)return;render()}
 async function loadReturn(){const gen=++generation;returnData=null;returnError=null;render();const p=fetchDate(query.returnDate);renderDates();await p;if(gen!==generation)return;const e=entry(query.returnDate);returnData=e?.data;returnError=e?.error;render()}
-function selectDate(d){visible=8;airlines.clear();inbound=null;cardCabin.clear();if(stage==='return'){query.returnDate=d;updateURL();loadReturn()}else{restorePlace();const r=returnFor(d);selected=d;query.departureDate=d;query.returnDate=r;outbound=null;stage='outbound';updateURL();loadSelected()}}
-function changeStep(step){if(step==='outbound'){++generation;restorePlace();cardCabin.clear();stage='outbound';outbound=null;inbound=null;returnData=null;visible=8;airlines.clear();centreDates();loadSelected()}else if(outbound){stage='return';inbound=null;visible=8;airlines.clear();centreDates();loadReturn()}}
+function selectDate(d){draftDirty=false;visible=8;airlines.clear();inbound=null;cardCabin.clear();if(stage==='return'){query.returnDate=d;updateURL();loadReturn()}else{restorePlace();const r=returnFor(d);selected=d;query.departureDate=d;query.returnDate=r;outbound=null;stage='outbound';updateURL();loadSelected()}}
+function changeStep(step){draftDirty=false;if(step==='outbound'){++generation;restorePlace();cardCabin.clear();stage='outbound';outbound=null;inbound=null;returnData=null;visible=8;airlines.clear();centreDates();loadSelected()}else if(outbound){stage='return';inbound=null;visible=8;airlines.clear();centreDates();loadReturn()}}
 $('#date-strip').onclick=e=>{const b=e.target.closest('[data-date]');if(b)selectDate(b.dataset.date)};
 // The arrows only move the strip (indicative prices); a search runs when a day is chosen.
 $('#previous-dates').onclick=()=>{windowStart=add(windowStart,-5);if(windowStart<firstDate())windowStart=firstDate();renderDates()};
 $('#next-dates').onclick=()=>{windowStart=add(windowStart,5);renderDates()};
-function jumpTo(d){if(!validDate(d)||d<firstDate()||d>lastDate())return;windowStart=add(d,-2);if(windowStart<firstDate())windowStart=firstDate();selectDate(d)}
-$('#date-jump').onclick=e=>openCalendarPopover(e.currentTarget,{value:activeDate(),min:firstDate(),max:lastDate(),heading:stage==='return'?'Quando regressas?':'Quando começa a viagem?',outboundDay:stage==='return'?selected:null,priceQuery:calendarQuery(),foot:'Preços indicativos, com taxas incluídas. O valor final aparece nos resultados.',onSelect:jumpTo});
+function jumpTo(d){draftDirty=false;if(!validDate(d)||d<firstDate()||d>lastDate())return;windowStart=add(d,-2);if(windowStart<firstDate())windowStart=firstDate();selectDate(d)}
 $('#nonstop').onchange=e=>{direct=e.target.checked;visible=8;airlines.clear();updateURL();render()};
 $('#airline-filters').onchange=e=>{if(!e.target.matches('[data-airline]'))return;const a=e.target.dataset.airline;e.target.checked?airlines.add(a):airlines.delete(a);visible=8;renderDates();renderOffers()};
 function resetFilters(){airlines.clear();direct=false;visible=8;$('#nonstop').checked=false;updateURL();render()}

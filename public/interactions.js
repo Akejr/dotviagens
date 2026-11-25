@@ -1,4 +1,4 @@
-import {mountCalendar,addDaysIso,daysBetweenIso,standardTripDays} from './price-calendar.js';
+import {mountCalendar,addDaysIso,daysBetweenIso} from './price-calendar.js';
 import {loadAirports,localize} from './airports.js';
 import {POPULAR} from './airports-popular.js';
 import {ALL_AIRPORT_COUNTRIES} from './airport-countries.js';
@@ -56,13 +56,9 @@ for(const id of ['departure','return']){const input=$('#'+id);input.hidden=true;
 const maxISO=new Date(Date.now()+330*86400000).toISOString().slice(0,10);
 const isReturnTrip=()=>!$('#pesquisa').classList.contains('oneway');
 const tripLength=()=>daysBetweenIso($('#departure').value,$('#return').value);
-// Indicative price under each day: departure = round trip of about the current length (standard lengths,
-// see standardTripDays) or one way; return = total with the chosen departure. Asked only when the calendar opens.
-// A whole country has its own calendar (the provider receives the country's Google location id).
-function homePriceQuery(id){const origin=$('#origin').value,destination=$('#destination').value;if(!origin||!destination||origin===destination)return null;const base={origin,destination,passengers:Number($('#passengers').value)||1,children:Number($('#children')?.value)||0,cabin:$('#cabin')?.value||'economy'};if(!isReturnTrip())return {...base,type:'oneway'};if(id==='return')return {...base,type:'return',fixedOutbound:$('#departure').value};return {...base,type:'return',tripDays:standardTripDays(Math.min(60,Math.max(1,tripLength())))}}
 // A new departure keeps the trip length (the departure prices assume it), then the return calendar opens with the totals.
 function pickDate(id,value){const departure=$('#departure'),ret=$('#return');if(id==='departure'){const keep=isReturnTrip()?tripLength():null;departure.value=value;departure.dispatchEvent(new Event('change'));if(keep!==null&&keep>=0){let r=addDaysIso(value,keep);if(r>maxISO)r=maxISO;ret.value=r}}else{ret.value=value;ret.dispatchEvent(new Event('change'))}syncDates();close(true);if(id==='departure'&&isReturnTrip())requestAnimationFrame(()=>dateButtons.return.click())}
-function openDate(id,b){const input=$('#'+id);if(!open(b,'calendar','<div role="dialog" aria-label="Escolher data"><div class="calendar-content"></div></div>'))return;const priceQuery=homePriceQuery(id);mountCalendar(panel.querySelector('.calendar-content'),{value:input.value,min:input.min,max:maxISO,heading:id==='departure'?'Quando começa a viagem?':'Quando regressas?',outboundDay:id==='return'?$('#departure').value:null,priceQuery,emptyNote:'Escolhe o destino para veres o preço de cada dia.',foot:`${icon('calendar',14)} ${priceQuery?'Preços indicativos, com taxas incluídas. O valor final confirma-se na pesquisa.':id==='departure'?'Escolhe o primeiro dia da tua próxima história.':'A data de volta deve ser posterior ou igual à ida.'}`,onRender:reposition,onSelect:value=>pickDate(id,value)})}
+function openDate(id,b){const input=$('#'+id);if(!open(b,'calendar','<div role="dialog" aria-label="Escolher data"><div class="calendar-content"></div></div>'))return;mountCalendar(panel.querySelector('.calendar-content'),{value:input.value,min:input.min,max:maxISO,heading:id==='departure'?'Quando começa a viagem?':'Quando regressas?',outboundDay:id==='return'?$('#departure').value:null,foot:`${icon('calendar',14)} ${id==='departure'?'Escolhe o primeiro dia da tua próxima história.':'A data de volta deve ser posterior ou igual à ida.'}`,onRender:reposition,onSelect:value=>pickDate(id,value)})}
 function syncDates(){for(const id of ['departure','return']){const d=parse($('#'+id).value);dateButtons[id].innerHTML=`<span>${dateFmt.format(d)}</span>${icon('calendar',15)}`;dateButtons[id].setAttribute('aria-label',`${id==='departure'?'Data de ida':'Data de volta'}: ${new Intl.DateTimeFormat('pt-PT',{dateStyle:'long'}).format(d)}`)}}syncDates();
 // Who travels and in which class: adults (12+), children (2 to 11) and the cabin. The adults stay in
 // the #passengers select; children and cabin in hidden fields of the form (read by app.js on submit).

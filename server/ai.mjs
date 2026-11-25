@@ -13,6 +13,7 @@ import { requestOtp, verifyOtp, getSession, requireAdmin, SESSION_COOKIE } from 
 import { quote, createBooking } from './bookings.mjs';
 import { validatePassengers } from './passengers.mjs';
 import { currentRate, currentMarkup, priceAoa, luandaToday } from './rates.mjs';
+import { withPromo, promoInfo } from './promo.mjs';
 import { isPlace } from './places.mjs';
 import { countryPlaces } from './airport-codes.mjs';
 import { cityGroups } from './city-airports.mjs';
@@ -174,6 +175,7 @@ function systemPrompt(state) {
     'Datas: tu convertes sempre datas relativas ou incompletas para AAAA-MM-DD com a lista acima (amanhã, depois de amanhã, sexta-feira, próxima semana, "dia 12", "12 de janeiro"; sem ano, a próxima vez que esse dia chega). Nunca peças ao cliente a data em formato AAAA-MM-DD nem a "data completa". Pede uma data só se o cliente não disser nenhuma; "de manhã" ou "à noite" não muda a data (os horários aparecem no cartão).',
     'Destaca em **negrito** só o essencial: preços, datas, a referência da reserva e o que pedes ao cliente (ex.: "diz-me o teu **nome completo** e o teu **e-mail**"). No máximo 3 destaques por mensagem.',
     'Regras: nunca inventes voos, horários nem preços. Os preços vêm só das ferramentas. price_calendar e cheapest_dates dão preços indicativos; os voos do cartão têm o preço exacto. Fala só de viagens e da compra na DOT; recusa com simpatia outros assuntos.',
+    ...(promoInfo() ? [`Campanha ${promoInfo().label}: todos os preços das ferramentas já têm o desconto da campanha. Se o cliente perguntar, diz que o preço já inclui o desconto ${promoInfo().label}. Nunca digas percentagens de desconto.`] : []),
     'Passos:',
     '1. Precisas de: origem, destino, data da ida e se é só ida ou ida e volta (com a data da volta). Se o cliente disser só o destino, pergunta "Saindo de **Luanda**?" (confirma sempre a origem, não a assumas). Se faltarem os passageiros ou a classe, pergunta numa só frase curta (ex.: "Quantas pessoas e em que classe? Económica, Executiva ou Primeira."). "1 pessoa" ou "só eu" é 1 adulto. "1ª classe" ou "primeira classe" é Primeira; "1 classe" é ambíguo: confirma. Junta as perguntas que faltam numa frase; nunca faças uma lista de perguntas.',
     '2. Usa find_place para os códigos. Se houver dúvida (cidade com vários aeroportos), usa o código da cidade inteira.',
@@ -207,7 +209,8 @@ async function pricing(env, deps) {
   const [rate, markup] = await Promise.all([currentRate(env, deps).catch(() => null), currentMarkup(env, deps)]);
   return rate?.rate ? { rate: rate.rate, markupBp: markup.markupBp } : null;
 }
-const kzOf = (brl, prices) => priceAoa(brl, prices.rate, prices.markupBp).amountAoa;
+// With the campaign discount, like the site and the checkout.
+const kzOf = (brl, prices) => withPromo(priceAoa(brl, prices.rate, prices.markupBp)).amountAoa;
 
 function tripOf(args) {
   const trip = {
