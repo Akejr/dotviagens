@@ -14,7 +14,7 @@ import { hasWiza, createCharge, paymentStatus, transactionInfo, wizaMessage } fr
 import { hasVero, isVeroSandbox, ensureCustomer, issueInvoice, invoiceStatus } from './vero.mjs';
 import { smsText } from './sms.mjs';
 import { sendAndRecord } from './notify.mjs';
-import { purchaseEmails, invoiceEmail, travellersText } from './emails.mjs';
+import { purchaseEmails, invoiceEmail, travellersText, ticketFromBooking, ticketPageHtml, ticketToken } from './emails.mjs';
 import { sha256Hex, timingSafeEqual } from './crypto.mjs';
 
 export const REFERENCE = /^DOT-\d{6}-\d{5,}$/;
@@ -626,4 +626,16 @@ export async function sweep(request, env, ctx, deps) {
     throw new HttpError(403, 'Pedido não permitido.', 'FORBIDDEN');
   }
   return json(await runSweep(env, ctx, deps));
+}
+
+// The ticket page of an e-mail: open with the private link (token of the booking and PNR), print or save as PDF.
+export async function ticketPage(request, env, ctx, deps) {
+  const booking = await db(env, deps.fetcher).one('bookings', { select: '*,booking_passengers(*)', reference: `eq.${deps.params[0]}` });
+  const token = new URL(request.url).searchParams.get('t') || '';
+  if (!booking?.ticket_pnr || !booking.ticket_details?.legs?.length || !timingSafeEqual(token, await ticketToken(env, booking))) {
+    throw new HttpError(404, 'Bilhete não encontrado.', 'NOT_FOUND');
+  }
+  return new Response(ticketPageHtml(env, booking, ticketFromBooking(booking), { printBar: true }), {
+    headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'private, no-store', 'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex' },
+  });
 }

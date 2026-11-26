@@ -7,6 +7,7 @@
 import { airportCity } from './airport-names.mjs';
 import { CABINS } from './flights.mjs';
 import { isVeroSandbox } from './vero.mjs';
+import { hmacHex } from './crypto.mjs';
 
 const RESEND = 'https://api.resend.com/emails';
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -268,3 +269,206 @@ export async function invoiceEmail(env, store, booking, deps) {
     key: `booking-${booking.reference}-invoice`, to: booking.contact_email, purpose: 'invoice', bookingId: booking.id, withInvoice: true, message: invoiceMessage(env, booking),
   }, deps);
 }
+
+// ── Ticket (bilhete): the e-mail and the A4 page share the same data ─────────────────────────
+// bookings.ticket_details = { legs: [{ flight, airline, from, to, departure, arrival, terminal, checkinClose,
+//   duration, cabin, direction }], checkedPieces, checkedKg, carryOnKg, carryOnSize, personalItem, personalSize }
+const flightDay = value => longDay(value).replace(/^[^,]+,\s*/, '');
+const PARTICLES = new Set(['da', 'de', 'do', 'das', 'dos', 'e']);
+const niceName = text => String(text || '').toLowerCase().split(/\s+/).filter(Boolean)
+  .map((word, index) => (index && PARTICLES.has(word) ? word : word.charAt(0).toUpperCase() + word.slice(1))).join(' ');
+const dateOfIssue = value => new Intl.DateTimeFormat('pt-PT', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Africa/Luanda' }).format(new Date(value || Date.now()));
+
+export const ticketToken = async (env, booking) =>
+  (await hmacHex(String(env.AUTH_SECRET || 'dot-viagens'), `ticket:${booking.reference}:${booking.ticket_pnr}`)).slice(0, 32);
+export const ticketUrl = async (env, booking) =>
+  `${baseOf(env)}/api/bookings/${encodeURIComponent(booking.reference)}/bilhete?t=${await ticketToken(env, booking)}`;
+
+export function ticketFromBooking(booking) {
+  const d = booking.ticket_details || {};
+  const people = (booking.booking_passengers || []).slice().sort((a, b) => a.position - b.position).map(p => niceName(`${p.given_names} ${p.surname}`));
+  const promo = booking.itinerary?.promo;
+  const discountAoa = Number(promo?.discountAoa) || 0;
+  const children = childrenOf(booking);
+  const legs = (d.legs || []).map(leg => ({ ...leg, cabin: leg.cabin || cabinOf(booking) }));
+  return {
+    passenger: people.join(' · ') || niceName(booking.contact_name),
+    pnr: booking.ticket_pnr,
+    ticketNumber: booking.ticket_numbers || '',
+    legs,
+    checkedPieces: Number(d.checkedPieces) || 0,
+    checkedKg: Number(d.checkedKg) || 0,
+    carryOnKg: Number(d.carryOnKg) || 0,
+    carryOnSize: d.carryOnSize || '',
+    personalItem: d.personalItem !== false,
+    personalSize: d.personalSize || '',
+    travellers: travellersText(booking.passengers_count - children, children),
+    fullAoa: Number(booking.amount_aoa) + discountAoa,
+    discountAoa,
+    discountLabel: promo?.label ? `Desconto ${promo.label}` : 'Desconto',
+    totalAoa: Number(booking.amount_aoa),
+    issuedAt: dateOfIssue(booking.ticketed_at),
+  };
+}
+const fromTo = t => `${t.legs[0]?.from || ''} → ${t.legs.at(-1)?.to || ''}`;
+const sizeOf = text => (text ? ` · ${text}` : '');
+const bagLines = t => [
+  t.checkedPieces ? { n: t.checkedPieces, name: t.checkedPieces === 1 ? 'Mala de porão' : 'Malas de porão', note: `até ${t.checkedKg} kg${t.checkedPieces > 1 ? ' cada' : ''}` } : null,
+  t.carryOnKg ? { n: 1, name: 'Bagagem de mão', note: `até ${t.carryOnKg} kg${sizeOf(t.carryOnSize)}` } : null,
+  t.personalItem ? { n: 1, name: 'Item pessoal', note: `debaixo do assento${sizeOf(t.personalSize)}` } : null,
+].filter(Boolean);
+
+function routeCard(leg, planeSrc) {
+  const check = leg.checkinClose ? ` · Check-in até <b style="color:#ffffff">${esc(leg.checkinClose)}</b>` : '';
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-radius:20px;background-color:${INK};margin:0 0 14px"><tr><td style="padding:24px 24px 20px">
+    <div style="font:700 11px/1.4 ${HEAD};letter-spacing:1.4px;text-transform:uppercase;color:#ffad00;margin:0 0 18px">${leg.direction ? `${esc(leg.direction)} · ` : ''}${esc(longDay(leg.departure))} de ${esc(dayOf(leg.departure).slice(0, 4))}</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+      <td width="32%" valign="top"><div style="font:800 40px/1 ${HEAD};color:#ffffff;letter-spacing:-1px">${esc(leg.from)}</div><div style="font:14px/1.5 ${FONT};color:#c9ccc4;margin-top:6px">${esc(city(leg.from))}</div><div style="font:800 22px/1.3 ${HEAD};color:#ffffff;margin-top:12px">${esc(clock(leg.departure))}</div></td>
+      <td width="36%" align="center" valign="top" style="padding-top:6px"><div style="font:12px/1.4 ${FONT};color:#c9ccc4">${duration(leg.duration)}</div><img src="${esc(planeSrc)}" width="190" alt="" style="display:block;border:0;width:100%;max-width:190px;height:auto;margin:8px auto"><div style="font:12px/1.4 ${FONT};color:#c9ccc4">Directo</div></td>
+      <td width="32%" align="right" valign="top"><div style="font:800 40px/1 ${HEAD};color:#ffffff;letter-spacing:-1px">${esc(leg.to)}</div><div style="font:14px/1.5 ${FONT};color:#c9ccc4;margin-top:6px">${esc(city(leg.to))}</div><div style="font:800 22px/1.3 ${HEAD};color:#ffffff;margin-top:12px">${esc(clock(leg.arrival))}</div></td>
+    </tr></table>
+    <div style="margin-top:18px;padding-top:14px;border-top:1px solid #45483f;font:13px/1.5 ${FONT};color:#c9ccc4">${esc(leg.airline)} · Voo <b style="color:#ffffff">${esc(leg.flight)}</b> · ${esc(leg.cabin)}${check}</div>
+  </td></tr></table>`;
+}
+
+function ticketDetailsCard(t) {
+  const row = (name, value) => `<tr><td style="padding:10px 0;border-top:1px solid ${LINE};font:13px/1.4 ${FONT};color:${MUTED};width:42%" valign="top">${esc(name)}</td><td style="padding:10px 0;border-top:1px solid ${LINE};font:600 14px/1.4 ${FONT};color:${INK}">${value}</td></tr>`;
+  const bags = bagLines(t).map(b => `${b.n} ${esc(b.name.toLowerCase())}<span style="font:400 12px ${FONT};color:${MUTED}"> · ${esc(b.note)}</span>`).join('<br>');
+  return card(`${label('O teu bilhete')}<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+    ${row('Passageiro', esc(t.passenger))}
+    ${row('Código da reserva', `<span style="font:800 16px ${HEAD};letter-spacing:1px">${esc(t.pnr)}</span>`)}
+    ${t.ticketNumber ? row('Número do bilhete', esc(t.ticketNumber)) : ''}
+    ${bags ? row('Bagagem incluída', bags) : ''}
+  </table>`);
+}
+
+function priceCard(t) {
+  const row = (name, value, { strong = false, color = INK } = {}) => `<tr><td style="padding:9px 0;${strong ? `border-top:1px solid ${LINE};` : ''}font:${strong ? 700 : 400} 14px/1.4 ${FONT};color:${strong ? INK : MUTED}">${esc(name)}</td><td align="right" style="padding:9px 0;${strong ? `border-top:1px solid ${LINE};` : ''}font:${strong ? '800 18px' : '600 14px'}/1.4 ${HEAD};color:${color}">${value}</td></tr>`;
+  return card(`${label('Preço')}<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+    ${row(`Passagem aérea · ${t.travellers}`, kz(t.fullAoa))}
+    ${t.discountAoa ? row(t.discountLabel, `−${kz(t.discountAoa)}`, { color: '#1a8a4a' }) : ''}
+    ${row('Total pago', kz(t.totalAoa), { strong: true, color: ORANGE })}
+  </table><div style="font:12px/1.5 ${FONT};color:${MUTED};margin-top:4px">Já inclui taxas de aeroporto e da companhia.</div>`);
+}
+
+export function ticketMessage(env, booking, t) {
+  const planeSrc = t.planeSrc || `${baseOf(env)}/assets/rota-aviao.png`;
+  const first = t.passenger.split(/\s+/)[0];
+  const page = t.pageUrl ? card(`${label('Bilhete em PDF')}<p style="margin:0 0 14px;font:14px/1.55 ${FONT};color:${INK}">Abre o bilhete numa página limpa e guarda-o em PDF ou imprime-o.</p>${button(t.pageUrl, 'Abrir o bilhete', false)}`) : '';
+  const html = layout(env, {
+    preheader: `O teu bilhete ${fromTo(t)}, ${flightDay(t.legs[0].departure)}, está pronto.`,
+    eyebrow: 'Bilhete emitido',
+    title: `${first}, o teu bilhete está pronto.`,
+    intro: `Segue o bilhete e a factura da reserva <b>${esc(booking.reference)}</b>. No aeroporto, apresenta o passaporte.`,
+    body: t.legs.map(leg => routeCard(leg, planeSrc)).join('') + ticketDetailsCard(t) + priceCard(t) + invoiceHtml(env, booking) + page,
+  });
+  const text = [
+    `Bilhete emitido · ${booking.reference}`,
+    ...t.legs.map(l => `${city(l.from)} (${l.from}) → ${city(l.to)} (${l.to}) · ${flightDay(l.departure)} · ${clock(l.departure)} → ${clock(l.arrival)} · Voo ${l.flight}`),
+    `Código da reserva ${t.pnr}${t.ticketNumber ? ` · Bilhete ${t.ticketNumber}` : ''}`,
+    `Total pago: ${kz(t.totalAoa)}`,
+    pdfOf(env, booking) ? `Factura-recibo: ${pdfOf(env, booking)}` : '',
+    t.pageUrl ? `Bilhete: ${t.pageUrl}` : '',
+    `Ajuda: ${WHATSAPP}`,
+  ].filter(Boolean).join('\n');
+  return { subject: `O teu bilhete · ${fromTo(t)} · ${booking.reference}`, html, text, attachments: attachmentsOf(env, booking) };
+}
+
+// A4 page of the ticket (printed to PDF): one boarding-pass card per flight.
+export function ticketPageHtml(env, booking, t, { printBar = false } = {}) {
+  const base = baseOf(env);
+  const plane = t.planeSrc || `${base}/assets/rota-aviao.png`;
+  const line = (name, value, { strong = false, green = false } = {}) => `<tr class="${strong ? 'tot' : ''}"><td>${esc(name)}</td><td class="r${green ? ' g' : ''}">${value}</td></tr>`;
+  const pass = (leg, index) => `<div class="bp"><div class="main">
+  <div class="eyebrow">${leg.direction ? `${esc(leg.direction)} · ` : ''}${esc(longDay(leg.departure))} de ${esc(dayOf(leg.departure).slice(0, 4))}</div>
+  <div class="rt">
+    <div class="ap"><div class="code">${esc(leg.from)}</div><div class="name">${esc(city(leg.from))}${leg.terminal ? ` · ${esc(leg.terminal)}` : ''}</div><div class="time">${esc(clock(leg.departure))}</div><div class="day">Partida</div></div>
+    <div class="mid"><small>${duration(leg.duration)}</small><img src="${esc(plane)}" alt=""><small>Voo directo</small></div>
+    <div class="ap" style="text-align:right"><div class="code">${esc(leg.to)}</div><div class="name">${esc(city(leg.to))}</div><div class="time">${esc(clock(leg.arrival))}</div><div class="day">Chegada</div></div>
+  </div>
+  <div class="fl"><span>${esc(leg.airline)}</span><span>Voo <b>${esc(leg.flight)}</b></span><span>${esc(leg.cabin)}</span>${leg.checkinClose ? `<span>Check-in até <b>${esc(leg.checkinClose)}</b></span>` : ''}</div>
+</div>
+<div class="stub"><div><div class="l">Código da reserva</div><div class="pnr">${esc(t.pnr)}</div><div class="l">Passageiro</div><div class="s">${esc(t.passenger)}</div></div>
+<div>${t.ticketNumber ? `<div class="l">Bilhete</div><div class="s" style="margin-bottom:0">${esc(t.ticketNumber)}</div>` : ''}</div></div></div>`;
+  const bags = bagLines(t).map(b => `<div class="bag"><div class="n">${b.n}</div><div class="v">${esc(b.name)}</div><div class="sm">${esc(b.note)}</div></div>`).join('');
+  const first = t.legs[0];
+  return `<!doctype html><html lang="pt"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Bilhete ${esc(booking.reference)}</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&family=Manrope:wght@700;800&display=swap" rel="stylesheet">
+<style>
+@page{size:A4;margin:0}
+*{box-sizing:border-box}
+html,body{margin:0;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;font-family:${FONT};color:${INK}}
+.page{width:210mm;min-height:297mm;position:relative;margin:0 auto;background:#faf9f6;padding-bottom:26mm}
+.top{height:7mm;background:${GRADIENT}}
+.in{padding:11mm 14mm 0}
+.head{display:flex;justify-content:space-between;align-items:center}
+.head img{height:12mm}
+.doc{text-align:right}
+.doc b{display:block;font:800 17px ${HEAD};letter-spacing:-.2px}
+.doc span{font-size:11px;color:${MUTED}}
+.bp{display:flex;margin-top:8mm;border-radius:6mm;overflow:hidden;background:${INK};color:#fff;break-inside:avoid}
+.main{flex:1;padding:8mm 9mm 7mm}
+.stub{width:50mm;background:${ORANGE};background-image:${GRADIENT};padding:8mm 6mm;position:relative;display:flex;flex-direction:column;justify-content:space-between}
+.stub:before{content:"";position:absolute;left:-2.4mm;top:0;bottom:0;width:4.8mm;background:radial-gradient(circle at 50% 50%,#faf9f6 0 1.5mm,transparent 1.6mm) 0 0/4.8mm 6mm repeat-y}
+.eyebrow{font:700 10px ${HEAD};letter-spacing:1.6px;text-transform:uppercase;color:#ffad00}
+.rt{display:flex;align-items:flex-start;justify-content:space-between;margin-top:6mm}
+.ap .code{font:800 46px/1 ${HEAD};letter-spacing:-1.5px}
+.ap .name{font-size:12px;color:#c9ccc4;margin-top:6px}
+.ap .time{font:800 22px ${HEAD};margin-top:5mm}
+.ap .day{font-size:11px;color:#c9ccc4}
+.mid{flex:1;text-align:center;padding:2mm 4mm 0}
+.mid small{display:block;font-size:11px;color:#c9ccc4}
+.mid img{width:100%;max-width:56mm;margin:2mm auto}
+.fl{margin-top:7mm;padding-top:4mm;border-top:1px solid #45483f;font-size:12px;color:#c9ccc4;display:flex;gap:6mm;flex-wrap:wrap}
+.fl b{color:#fff}
+.stub .l{font-size:10px;color:#fff3e6;text-transform:uppercase;letter-spacing:1px}
+.stub .pnr{font:800 30px/1.1 ${HEAD};letter-spacing:2px;margin:1mm 0 4mm}
+.stub .s{font:700 14px ${HEAD};margin:1mm 0 4mm}
+.sec{margin-top:5mm;background:#fff;border:1px solid ${LINE};border-radius:4mm;padding:6mm 7mm;break-inside:avoid}
+.sec h3{margin:0 0 4mm;font:700 10px ${HEAD};letter-spacing:1.6px;text-transform:uppercase;color:${ORANGE}}
+.g3{display:grid;grid-template-columns:repeat(3,1fr);gap:5mm}
+.v{font:600 13px/1.35 ${FONT}}
+.sm{font-size:11px;color:${MUTED};font-weight:400;margin-top:.5mm}
+.bag{border:1px solid ${LINE};border-radius:3mm;padding:4mm;background:#faf9f6}
+.bag .n{font:800 20px ${HEAD};color:${ORANGE}}
+.two{display:grid;grid-template-columns:1.15fr 1fr;gap:5mm;margin-top:5mm;break-inside:avoid}
+.two .sec{margin-top:0}
+table{width:100%;border-collapse:collapse;font-size:13px}
+td{padding:2.4mm 0;color:${MUTED}}td.r{text-align:right;color:${INK};font-weight:600}td.g{color:#1a8a4a}
+tr.tot td{border-top:1px solid ${LINE};padding-top:3.2mm;color:${INK};font:700 14px ${HEAD}}tr.tot td.r{color:${ORANGE};font-size:18px;font-weight:800}
+ul{margin:0;padding:0;list-style:none;font-size:12.5px;line-height:1.5}
+li{padding:1.6mm 0 1.6mm 5mm;position:relative}li:before{content:"";position:absolute;left:0;top:3.3mm;width:2mm;height:2mm;border-radius:50%;background:${GRADIENT}}
+.foot{position:absolute;left:14mm;right:14mm;bottom:9mm;display:flex;justify-content:space-between;align-items:flex-end;font-size:10.5px;color:${MUTED};border-top:1px solid ${LINE};padding-top:4mm}
+.foot b{color:${INK}}
+.bar{position:sticky;top:0;z-index:5;background:${INK};color:#fff;padding:10px 16px;display:flex;justify-content:space-between;align-items:center;font:600 14px ${FONT}}
+.bar button{border:0;border-radius:10px;padding:10px 18px;font:700 14px ${HEAD};color:#fff;background:${GRADIENT};cursor:pointer}
+@media print{.bar{display:none}}
+</style></head><body>${printBar ? '<div class="bar"><span>O teu bilhete DOT Viagens</span><button type="button" onclick="window.print()">Guardar em PDF / imprimir</button></div>' : ''}<div class="page"><div class="top"></div><div class="in">
+<div class="head"><img src="${esc(base)}/assets/logo-dot-320.png" alt="DOT Viagens"><div class="doc"><b>Bilhete electrónico</b><span>Reserva ${esc(booking.reference)} · emitido a ${esc(t.issuedAt)}</span></div></div>
+${t.legs.map(pass).join('')}
+${bags ? `<div class="sec"><h3>Bagagem incluída</h3><div class="g3">${bags}</div></div>` : ''}
+<div class="two">
+  <div class="sec"><h3>Pagamento</h3><table>
+    ${line(`Passagem aérea · ${t.travellers}`, kz(t.fullAoa))}
+    ${t.discountAoa ? line(t.discountLabel, `−${kz(t.discountAoa)}`, { green: true }) : ''}
+    ${line('Total pago', kz(t.totalAoa), { strong: true })}
+  </table><div class="sm" style="margin-top:2mm">Inclui taxas de aeroporto e da companhia. A factura-recibo segue em documento separado.</div></div>
+  <div class="sec"><h3>Antes de viajar</h3><ul>
+    <li>Leva o passaporte válido. É pedido no check-in.</li>
+    <li>Chega ao aeroporto com 3 horas de antecedência.</li>
+    ${first?.checkinClose ? `<li>O check-in fecha às ${esc(first.checkinClose)}.</li>` : ''}
+    <li>Guarda este bilhete e o código ${esc(t.pnr)}.</li>
+  </ul></div>
+</div>
+</div>
+<div class="foot"><div><b>DOT Viagens</b> · Luanda, Angola<br>dotviagens.com · WhatsApp +244 931 343 433</div><div style="text-align:right">Bilhete emitido pela companhia aérea ${esc(first?.airline || '')}.<br>Reserva ${esc(booking.reference)}</div></div>
+</div></body></html>`;
+}
+
+export const ticketEmail = async (env, store, booking, deps) => {
+  const t = { ...ticketFromBooking(booking), pageUrl: await ticketUrl(env, booking) };
+  return deliver(env, store, {
+    key: `booking-${booking.reference}-ticket-${booking.ticket_pnr}`, to: booking.contact_email, purpose: 'ticket', bookingId: booking.id,
+    withInvoice: Boolean(pdfOf(env, booking)), message: ticketMessage(env, booking, t),
+  }, deps);
+};

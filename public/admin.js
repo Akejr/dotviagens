@@ -155,7 +155,8 @@ function toast(message, kind = 'ok', link = null) {
   setTimeout(() => element.remove(), kind === 'money' || kind === 'info' ? 9000 : 4500);
 }
 
-function ask({ title, text = '', fields = '', confirm = 'Confirmar', onSubmit }) {
+function ask({ title, text = '', fields = '', confirm = 'Confirmar', wide = false, onSubmit }) {
+  dialog.classList.toggle('wide', wide);
   dialog.innerHTML = `<form novalidate><h2>${esc(title)}</h2>${text ? `<p>${text}</p>` : ''}${fields}
     <p class="form-error" role="alert" hidden></p>
     <div class="form-actions"><button type="button" class="link-btn" data-cancel>Cancelar</button><button type="submit" class="primary">${esc(confirm)}</button></div></form>`;
@@ -996,6 +997,7 @@ function renderBooking(data) {
     const result = await api(`/api/admin/bookings/${encodeURIComponent(b.reference)}/action`, { method: 'POST', body: payload, timeout: 60000 });
     renderBooking(result);
     if (result.smsError) toast(`Guardado, mas o SMS falhou: ${result.smsError}`, 'error');
+    else if (result.emailError) toast('Guardado, mas ' + result.emailError.charAt(0).toLowerCase() + result.emailError.slice(1), 'error');
     else if (result.invoiceError) toast(result.invoiceError, 'error');
     else toast('Reserva actualizada.');
     return result;
@@ -1013,7 +1015,76 @@ function renderBooking(data) {
         }
         return;
       }
-      const forms = {
+      const ticketLegs = () => {
+        if (b.ticket_details?.legs?.length) return b.ticket_details.legs;
+        const found = [];
+        [['outbound', 'Ida'], ['inbound', 'Volta']].forEach(([key, direction]) => {
+          ((b.itinerary || {})[key]?.segments || []).forEach(s => found.push({
+            flight: s.number, airline: s.airline, from: s.from, to: s.to, departure: s.departure, arrival: s.arrival,
+            duration: s.duration, cabin: b.itinerary[key].cabin, direction: b.trip_type === 'return' ? direction : '',
+          }));
+        });
+        if (found.length) return found;
+        return b.trip_type === 'return' ? [{ direction: 'Ida' }, { direction: 'Volta' }] : [{}];
+      };
+      const legList = ticketLegs();
+      const minutesText = m => (m ? `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}` : '');
+      const ticketFields = () => {
+        const td = b.ticket_details || {};
+        const num = (value, fallback) => (value === undefined || value === null ? fallback : value);
+        const legBlock = (leg, i) => `<fieldset class="tk-leg"><legend>Voo ${i + 1}${leg.direction ? ` · ${esc(leg.direction)}` : ''}</legend>
+          <div class="tk-grid">
+            <label class="form-field"><span>Voo</span><input name="l${i}_flight" value="${esc(leg.flight || '')}" placeholder="TP 295" maxlength="12"></label>
+            <label class="form-field"><span>Companhia</span><input name="l${i}_airline" value="${esc(leg.airline || '')}" placeholder="TAP Air Portugal" maxlength="40"></label>
+            <label class="form-field"><span>De (aeroporto)</span><input name="l${i}_from" value="${esc(leg.from || '')}" maxlength="3" style="text-transform:uppercase" placeholder="LIS"></label>
+            <label class="form-field"><span>Para</span><input name="l${i}_to" value="${esc(leg.to || '')}" maxlength="3" style="text-transform:uppercase" placeholder="NBJ"></label>
+            <label class="form-field"><span>Partida</span><input type="datetime-local" name="l${i}_dep" value="${esc(String(leg.departure || '').replace(' ', 'T'))}"></label>
+            <label class="form-field"><span>Chegada</span><input type="datetime-local" name="l${i}_arr" value="${esc(String(leg.arrival || '').replace(' ', 'T'))}"></label>
+            <label class="form-field"><span>Terminal <small>(partida)</small></span><input name="l${i}_terminal" value="${esc(leg.terminal || '')}" placeholder="Terminal 1" maxlength="20"></label>
+            <label class="form-field"><span>Check-in fecha às</span><input type="time" name="l${i}_checkin" value="${esc(leg.checkinClose || '')}"></label>
+            <label class="form-field"><span>Duração <small>(h:mm)</small></span><input name="l${i}_dur" value="${esc(minutesText(leg.duration))}" placeholder="7:55" maxlength="6"></label>
+            <label class="form-field"><span>Classe</span><input name="l${i}_cabin" value="${esc(leg.cabin || 'Económica')}" maxlength="30"></label>
+            <input type="hidden" name="l${i}_dir" value="${esc(leg.direction || '')}">
+          </div></fieldset>`;
+        return `${legList.map(legBlock).join('')}
+          <div class="tk-grid">
+            <label class="form-field"><span>Código da reserva (PNR)</span><input name="pnr" required maxlength="8" value="${esc(b.ticket_pnr || '')}" style="text-transform:uppercase"></label>
+            <label class="form-field"><span>Números dos bilhetes <small>(um por passageiro)</small></span><input name="ticketNumbers" maxlength="300" value="${esc(b.ticket_numbers || '')}" placeholder="Ex.: 047 2528489734"></label>
+          </div>
+          <fieldset class="tk-leg"><legend>Bagagem incluída <small>(por passageiro)</small></legend><div class="tk-grid">
+            <label class="form-field"><span>Malas de porão</span><input type="number" name="bags" min="0" max="9" value="${esc(num(td.checkedPieces, 1))}"></label>
+            <label class="form-field"><span>Peso de cada mala <small>(kg)</small></span><input type="number" name="bagkg" min="0" max="70" value="${esc(num(td.checkedKg, 23))}"></label>
+            <label class="form-field"><span>Bagagem de mão <small>(kg, 0 = não inclui)</small></span><input type="number" name="carrykg" min="0" max="30" value="${esc(num(td.carryOnKg, 10))}"></label>
+            <label class="form-field"><span>Medidas da bagagem de mão</span><input name="carrysize" maxlength="30" value="${esc(num(td.carryOnSize, '55×40×25 cm'))}"></label>
+            <label class="check-row"><input type="checkbox" name="personal" ${td.personalItem === false ? '' : 'checked'}><span>Inclui item pessoal</span></label>
+            <label class="form-field"><span>Medidas do item pessoal</span><input name="personalsize" maxlength="30" value="${esc(num(td.personalSize, '40×30×20 cm'))}"></label>
+          </div></fieldset>
+          <label class="form-field"><span>Notas para o cliente <small>(opcional)</small></span><textarea name="notes" maxlength="500">${esc(b.ticket_notes || '')}</textarea></label>
+          <label class="check-row"><input type="checkbox" name="email" ${b.contact_email ? 'checked' : 'disabled'}><span>Enviar o bilhete e a factura por e-mail ao cliente${b.contact_email ? ` (${esc(b.contact_email)}; só uma vez por PNR)` : ' (sem e-mail na reserva)'}</span></label>
+          <label class="check-row"><input type="checkbox" name="notify" checked><span>Enviar SMS ao cliente (só quando o PNR é novo)</span></label>`;
+      };
+      const ticketBody = form => {
+        const legs = [];
+        legList.forEach((_, i) => {
+          const flight = String(form.get(`l${i}_flight`) || '').trim();
+          if (!flight) return;
+          const dur = String(form.get(`l${i}_dur`) || '').trim().match(/^(\d{1,2})[:h](\d{2})$/);
+          legs.push({
+            flight, airline: form.get(`l${i}_airline`), from: form.get(`l${i}_from`), to: form.get(`l${i}_to`),
+            departure: form.get(`l${i}_dep`), arrival: form.get(`l${i}_arr`), terminal: form.get(`l${i}_terminal`),
+            checkinClose: form.get(`l${i}_checkin`), duration: dur ? Number(dur[1]) * 60 + Number(dur[2]) : 0,
+            cabin: form.get(`l${i}_cabin`), direction: form.get(`l${i}_dir`),
+          });
+        });
+        return {
+          action, pnr: form.get('pnr'), ticketNumbers: form.get('ticketNumbers'), notes: form.get('notes'),
+          notify: form.get('notify') === 'on', email: form.get('email') === 'on',
+          details: {
+            legs, checkedPieces: form.get('bags'), checkedKg: form.get('bagkg'), carryOnKg: form.get('carrykg'), carryOnSize: form.get('carrysize'),
+            personalItem: form.get('personal') === 'on', personalSize: form.get('personalsize'),
+          },
+        };
+      };      const forms = {
         confirm_manual: {
           title: 'Confirmar pagamento à mão',
           text: b.payment_method === 'manual'
@@ -1024,16 +1095,13 @@ function renderBooking(data) {
           body: form => ({ action, note: form.get('note') }),
         },
         ticket: {
+          wide: true,
           title: b.status === 'ticketed' ? 'Editar bilhete' : 'Emitir bilhete',
-          text: 'Regista o código da reserva da companhia (PNR) e os números dos bilhetes. O cliente recebe um SMS e vê os dados em Minhas viagens.',
-          fields: `<label class="form-field"><span>Código da reserva (PNR)</span><input name="pnr" required maxlength="8" value="${esc(b.ticket_pnr || '')}" style="text-transform:uppercase"></label>
-            <label class="form-field"><span>Números dos bilhetes <small>(um por passageiro)</small></span><input name="ticketNumbers" maxlength="300" value="${esc(b.ticket_numbers || '')}" placeholder="Ex.: 118-1234567890, 118-1234567891"></label>
-            <label class="form-field"><span>Notas para o cliente <small>(opcional)</small></span><textarea name="notes" maxlength="500">${esc(b.ticket_notes || '')}</textarea></label>
-            <label class="check-row"><input type="checkbox" name="notify" checked><span>Enviar SMS ao cliente (só quando o PNR é novo)</span></label>`,
+          text: 'Preenche como no recibo da companhia. Estes dados desenham o bilhete DOT e o e-mail que o cliente recebe (com a factura).',
+          fields: ticketFields(),
           confirm: 'Guardar bilhete',
-          body: form => ({ action, pnr: form.get('pnr'), ticketNumbers: form.get('ticketNumbers'), notes: form.get('notes'), notify: form.get('notify') === 'on' }),
-        },
-        cancel: {
+          body: form => ticketBody(form),
+        },        cancel: {
           title: 'Cancelar reserva',
           text: paid ? 'A reserva já foi paga: regista o reembolso depois de o fazer.' : 'A reserva deixa de aceitar pagamentos.',
           fields: `<label class="form-field"><span>Motivo</span><textarea name="reason" required maxlength="300"></textarea></label>${paid ? '<label class="check-row"><input type="checkbox" name="notify" checked><span>Avisar o cliente por SMS</span></label>' : ''}`,
@@ -1064,7 +1132,7 @@ function renderBooking(data) {
       };
       const spec = forms[action];
       if (!spec) return;
-      ask({ title: spec.title, text: esc(spec.text), fields: spec.fields, confirm: spec.confirm, onSubmit: form => send(spec.body(form)) });
+      ask({ title: spec.title, text: esc(spec.text), fields: spec.fields, confirm: spec.confirm, wide: Boolean(spec.wide), onSubmit: form => send(spec.body(form)) });
     };
   });
 }

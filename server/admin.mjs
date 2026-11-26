@@ -13,7 +13,7 @@ import { hasWiza } from './wiza.mjs';
 import { hasVero, isVeroSandbox } from './vero.mjs';
 import { sendAndRecord } from './notify.mjs';
 import { syncPayment, confirmPayment, issueBookingInvoice, refreshInvoiceStatus, runSweep, logEvent, sendLateInvoice, REFERENCE, STATUS_LABEL } from './bookings.mjs';
-import { hasEmail } from './emails.mjs';
+import { hasEmail, ticketEmail } from './emails.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STATUSES = new Set(Object.keys(STATUS_LABEL));
@@ -234,6 +234,42 @@ export async function listBookings(request, env, ctx, deps) {
   return json({ rows, total });
 }
 
+// Flights and baggage of the issued ticket (the e-mail and the ticket page are drawn from them).
+const MOMENT = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/;
+const whole = (value, max) => Math.min(max, Math.max(0, Math.round(Number(value) || 0)));
+function parseTicketDetails(raw) {
+  if (!raw || !Array.isArray(raw.legs) || !raw.legs.length || raw.legs.length > 8) throw new HttpError(400, 'Indica os dados de pelo menos um voo.', 'INVALID_TICKET');
+  const legs = raw.legs.map((leg, index) => {
+    const place = code => String(code || '').toUpperCase().trim();
+    const at = value => String(value || '').trim().replace('T', ' ').slice(0, 16);
+    const out = {
+      flight: cleanText(leg.flight, 12).toUpperCase(),
+      airline: cleanText(leg.airline, 40),
+      from: place(leg.from),
+      to: place(leg.to),
+      departure: at(leg.departure),
+      arrival: at(leg.arrival),
+      terminal: cleanText(leg.terminal, 20),
+      checkinClose: /^\d{2}:\d{2}$/.test(String(leg.checkinClose || '').trim()) ? String(leg.checkinClose).trim() : '',
+      duration: whole(leg.duration, 3000),
+      cabin: cleanText(leg.cabin, 30),
+      direction: ['Ida', 'Volta'].includes(leg.direction) ? leg.direction : '',
+    };
+    if (!out.flight || !/^[A-Z]{3}$/.test(out.from) || !/^[A-Z]{3}$/.test(out.to) || !MOMENT.test(out.departure) || !MOMENT.test(out.arrival)) {
+      throw new HttpError(400, `Voo ${index + 1}: confirma o número do voo, os aeroportos e as datas e horas.`, 'INVALID_TICKET');
+    }
+    return out;
+  });
+  return {
+    legs,
+    checkedPieces: whole(raw.checkedPieces, 9),
+    checkedKg: whole(raw.checkedKg, 70),
+    carryOnKg: whole(raw.carryOnKg, 30),
+    carryOnSize: cleanText(raw.carryOnSize, 30),
+    personalItem: raw.personalItem !== false,
+    personalSize: cleanText(raw.personalSize, 30),
+  };
+}
 async function loadBooking(store, reference) {
   if (!REFERENCE.test(reference || '')) throw new HttpError(404, 'Reserva não encontrada.', 'NOT_FOUND');
   const booking = await store.one('bookings', { select: '*,booking_passengers(*),customer:customers(id,name,phone,email,role,created_at)', reference: `eq.${reference}` });
@@ -286,6 +322,7 @@ export async function bookingAction(request, env, ctx, deps) {
       if (!['paid', 'ticketed'].includes(booking.status)) throw new HttpError(409, 'Só é possível emitir o bilhete de uma reserva paga.', 'INVALID_STATE');
       const pnr = cleanText(body.pnr, 12).toUpperCase();
       if (!/^[A-Z0-9]{5,8}$/.test(pnr)) throw new HttpError(400, 'O código da reserva (PNR) tem 5 a 8 letras ou algarismos.', 'INVALID_PNR');
+      const details = body.details ? parseTicketDetails(body.details) : booking.ticket_details;
       const firstTime = booking.status !== 'ticketed';
       const pnrChanged = booking.ticket_pnr && booking.ticket_pnr !== pnr;
       [booking] = await store.update('bookings', { id: `eq.${booking.id}` }, {
@@ -293,8 +330,16 @@ export async function bookingAction(request, env, ctx, deps) {
         ticket_pnr: pnr,
         ticket_numbers: cleanText(body.ticketNumbers, 300) || null,
         ticket_notes: cleanText(body.notes, 500) || null,
+        ticket_details: details || null,
         ticketed_at: booking.ticketed_at || nowIso(),
       });
+      // The ticket and the invoice go to the customer by e-mail (once per PNR).
+      if (body.email !== false && booking.contact_email && details?.legs?.length && hasEmail(env)) {
+        const full = await loadBooking(store, reference);
+        await ticketEmail(env, store, full, deps).catch(error => {
+          result.emailError = `E-mail não enviado (${error.code || 'erro'}).`;
+        });
+      }
       if (body.notify !== false && (firstTime || pnrChanged)) {
         await sendAndRecord(env, store, {
           phone: booking.contact_phone,

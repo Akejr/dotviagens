@@ -369,3 +369,11 @@ a.kpi:hover{border-color:#f6c3a8;box-shadow:0 12px 26px #3226120f;transform:tran
 .image-actions a.primary{display:inline-flex;align-items:center;gap:8px;padding:11px 18px;border-radius:12px;font-weight:700;font-size:14px;text-decoration:none}
 .image-actions .btn-sm{padding:11px 16px;font-size:13px}
 .form-field[hidden]{display:none}
+
+/* Emitir bilhete: formulario largo */
+.admin-dialog.wide{max-width:720px;max-height:92dvh;overflow:auto}
+.tk-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+.tk-leg{border:1px solid var(--line,#e8e9e3);border-radius:14px;padding:12px 14px 14px;margin:14px 0 0}
+.tk-leg legend{font-weight:700;padding:0 6px}
+.admin-dialog .tk-grid .form-field+.form-field{margin-top:0}
+@media(max-width:560px){.tk-grid{grid-template-columns:1fr}}

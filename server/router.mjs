@@ -8,7 +8,7 @@ import { db, hasSupabase } from './supabase.mjs';
 import { hmacHex } from './crypto.mjs';
 import { requestOtp, verifyOtp, me, logout, getSession } from './auth.mjs';
 import { rateEndpoint } from './rates.mjs';
-import { quote, createBooking, listMyBookings, getMyBooking, checkBooking, retryPayment, wizaCallback, sweep } from './bookings.mjs';
+import { quote, createBooking, listMyBookings, getMyBooking, checkBooking, retryPayment, wizaCallback, sweep, ticketPage } from './bookings.mjs';
 import { sharedFlight, shareFlight, pausedUntil, pauseProvider, pauseMessage } from './provider.mjs';
 import { createAlert, checkAlerts, listAlerts, alertAction, checkAllAlerts } from './alerts.mjs';
 
@@ -167,6 +167,7 @@ const routes = [
   ['POST', '/api/bookings', createBooking],
   ['GET', '/api/bookings', listMyBookings],
   ['GET', `/api/bookings/(${REF})`, getMyBooking],
+  ['GET', `/api/bookings/(${REF})/bilhete`, ticketPage],
   ['POST', `/api/bookings/(${REF})/check`, checkBooking],
   ['POST', `/api/bookings/(${REF})/pay`, retryPayment],
   ['POST', '/api/payments/wiza/callback', wizaCallback],
