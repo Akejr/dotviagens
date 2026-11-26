@@ -42,13 +42,16 @@ async function call(env, method, path, body, fetcher) {
 }
 
 const org = env => encodeURIComponent(env.VERO_ORG_ID);
+// The Vero answers some routes with { data: {...} } and others with the object itself (customers/ensure
+// in production). Reading only data.id made every invoice fail with no_customer_id.
+const unwrap = data => (data && typeof data === 'object' && 'data' in data ? data.data : data);
 
 export async function ensureCustomer(env, { nif, name }, fetcher = fetch) {
   const body = nif
     ? { externalId: `nif-${nif}`, name: name || `Cliente NIF ${nif}`, taxId: nif }
     : { externalId: 'consumidor-final', name: 'Consumidor Final', isConsumidorFinal: true };
   const data = await call(env, 'POST', `/v1/organisations/${org(env)}/customers/ensure`, body, fetcher);
-  const id = data?.data?.id;
+  const id = unwrap(data)?.id;
   if (!id) throw new VeroError('no_customer_id');
   return id;
 }
@@ -66,12 +69,13 @@ export function invoicePayload({ customerId, reference, description, amountAoa, 
 
 export async function issueInvoice(env, args, fetcher = fetch) {
   const data = await call(env, 'POST', `/v1/organisations/${org(env)}/invoices`, invoicePayload(args), fetcher);
-  const invoice = data?.data;
+  const invoice = unwrap(data);
   if (!invoice?.id) throw new VeroError('no_invoice_id');
   return { id: invoice.id, number: invoice.number ?? null, agtStatus: invoice.agtStatus ?? null, pdfUrl: publicPdf(invoice.id) };
 }
 
 export async function invoiceStatus(env, id, fetcher = fetch) {
   const data = await call(env, 'GET', `/v1/organisations/${org(env)}/invoices/${encodeURIComponent(id)}`, null, fetcher);
-  return { agtStatus: data?.data?.agtStatus ?? null, agtErrors: data?.data?.agtErrors ?? null, number: data?.data?.number ?? null };
+  const inv = unwrap(data);
+  return { agtStatus: inv?.agtStatus ?? null, agtErrors: inv?.agtErrors ?? null, number: inv?.number ?? null };
 }
