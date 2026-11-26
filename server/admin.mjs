@@ -12,6 +12,7 @@ import { hasSms, smsBalance, smsStatus, smsText } from './sms.mjs';
 import { hasWiza } from './wiza.mjs';
 import { hasVero, isVeroSandbox } from './vero.mjs';
 import { sendAndRecord } from './notify.mjs';
+import { randomToken } from './crypto.mjs';
 import { syncPayment, confirmPayment, issueBookingInvoice, refreshInvoiceStatus, runSweep, logEvent, sendLateInvoice, REFERENCE, STATUS_LABEL } from './bookings.mjs';
 import { hasEmail, ticketEmail } from './emails.mjs';
 
@@ -322,7 +323,7 @@ export async function bookingAction(request, env, ctx, deps) {
       if (!['paid', 'ticketed'].includes(booking.status)) throw new HttpError(409, 'Só é possível emitir o bilhete de uma reserva paga.', 'INVALID_STATE');
       const pnr = cleanText(body.pnr, 12).toUpperCase();
       if (!/^[A-Z0-9]{5,8}$/.test(pnr)) throw new HttpError(400, 'O código da reserva (PNR) tem 5 a 8 letras ou algarismos.', 'INVALID_PNR');
-      const details = body.details ? parseTicketDetails(body.details) : booking.ticket_details;
+      const details = body.details ? { ...parseTicketDetails(body.details), token: booking.ticket_details?.token || randomToken(16) } : booking.ticket_details;
       const firstTime = booking.status !== 'ticketed';
       const pnrChanged = booking.ticket_pnr && booking.ticket_pnr !== pnr;
       [booking] = await store.update('bookings', { id: `eq.${booking.id}` }, {

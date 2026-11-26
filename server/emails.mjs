@@ -7,7 +7,6 @@
 import { airportCity } from './airport-names.mjs';
 import { CABINS } from './flights.mjs';
 import { isVeroSandbox } from './vero.mjs';
-import { hmacHex } from './crypto.mjs';
 
 const RESEND = 'https://api.resend.com/emails';
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -279,10 +278,10 @@ const niceName = text => String(text || '').toLowerCase().split(/\s+/).filter(Bo
   .map((word, index) => (index && PARTICLES.has(word) ? word : word.charAt(0).toUpperCase() + word.slice(1))).join(' ');
 const dateOfIssue = value => new Intl.DateTimeFormat('pt-PT', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Africa/Luanda' }).format(new Date(value || Date.now()));
 
-export const ticketToken = async (env, booking) =>
-  (await hmacHex(String(env.AUTH_SECRET || 'dot-viagens'), `ticket:${booking.reference}:${booking.ticket_pnr}`)).slice(0, 32);
+// The private link of the ticket page carries a random token saved with the ticket details.
+export const ticketToken = (env, booking) => booking.ticket_details?.token || '';
 export const ticketUrl = async (env, booking) =>
-  `${baseOf(env)}/api/bookings/${encodeURIComponent(booking.reference)}/bilhete?t=${await ticketToken(env, booking)}`;
+  `${baseOf(env)}/api/bookings/${encodeURIComponent(booking.reference)}/bilhete?t=${ticketToken(env, booking)}`;
 
 export function ticketFromBooking(booking) {
   const d = booking.ticket_details || {};

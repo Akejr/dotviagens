@@ -632,7 +632,7 @@ export async function sweep(request, env, ctx, deps) {
 export async function ticketPage(request, env, ctx, deps) {
   const booking = await db(env, deps.fetcher).one('bookings', { select: '*,booking_passengers(*)', reference: `eq.${deps.params[0]}` });
   const token = new URL(request.url).searchParams.get('t') || '';
-  if (!booking?.ticket_pnr || !booking.ticket_details?.legs?.length || !timingSafeEqual(token, await ticketToken(env, booking))) {
+  if (!booking?.ticket_pnr || !booking.ticket_details?.legs?.length || !ticketToken(env, booking) || !timingSafeEqual(token, ticketToken(env, booking))) {
     throw new HttpError(404, 'Bilhete não encontrado.', 'NOT_FOUND');
   }
   return new Response(ticketPageHtml(env, booking, ticketFromBooking(booking), { printBar: true }), {
